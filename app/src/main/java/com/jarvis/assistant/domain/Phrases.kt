@@ -1,0 +1,59 @@
+package com.jarvis.assistant.domain
+
+/** Short spoken confirmations. Hindi variants are used when the assistant language is Hindi. */
+class Phrases(private val hindi: Boolean) {
+    private fun pick(en: String, hi: String) = if (hindi) hi else en
+
+    fun calling(name: String) = pick("Calling $name", "$name को कॉल कर रहा हूँ")
+    fun whatsappSent(name: String) = pick("Message sent to $name on WhatsApp", "$name को व्हाट्सऐप पर मैसेज भेज दिया")
+    fun whatsappOpened(name: String) =
+        pick("I opened WhatsApp for $name. Please tap send.", "$name के लिए व्हाट्सऐप खोल दिया, भेजें दबाइए")
+    fun smsSent(name: String) = pick("Text sent to $name", "$name को मैसेज भेज दिया")
+    fun smsOpened(name: String) = pick("I opened your messages for $name. Please tap send.", "$name के लिए मैसेज खोल दिया")
+    fun alarmSet(hour: Int, minute: Int) = pick("Alarm set for ${formatTime(hour, minute)}", "${formatTime(hour, minute)} का अलार्म लगा दिया")
+    fun timerSet(seconds: Int) = pick("Timer set for ${formatDuration(seconds)}", "${formatDuration(seconds)} का टाइमर लगा दिया")
+    fun opening(app: String) = pick("Opening $app", "$app खोल रहा हूँ")
+    fun searching(query: String) = pick("Searching for $query", "$query खोज रहा हूँ")
+    fun playing(query: String) = pick("Playing $query", "$query चला रहा हूँ")
+    fun cancelled() = pick("Cancelled", "रद्द कर दिया")
+    fun notFound(name: String) = pick("I couldn't find $name in your contacts.", "$name आपके कॉन्टैक्ट्स में नहीं मिला")
+    fun whichOne(options: List<String>) =
+        pick("I found ${joinNames(options, "and")}. Which one?", "${joinNames(options, "और")} मिले। कौन सा?")
+    fun didNotCatchChoice() = pick("Sorry, I didn't catch which one. Cancelled.", "समझ नहीं आया, रद्द कर दिया")
+    fun didNotHear() = pick("I didn't hear anything.", "मुझे कुछ सुनाई नहीं दिया")
+    fun appNotFound(app: String) = pick("I couldn't find an app called $app.", "$app नाम का ऐप नहीं मिला")
+    fun noApp(what: String) = pick("There's no app on this phone that can $what.", "इस फ़ोन पर यह करने वाला ऐप नहीं है")
+    fun whatsappMissing() = pick("WhatsApp isn't installed.", "व्हाट्सऐप इंस्टॉल नहीं है")
+    fun needPermission(what: String) =
+        pick("I need the $what permission for that. Please allow it in the Jarvis app.", "इसके लिए $what की अनुमति चाहिए")
+    fun noPhoneNumber(name: String) = pick("$name doesn't have a phone number.", "$name का फ़ोन नंबर नहीं है")
+    fun backendNotSet() =
+        pick("Please set the backend URL and shared secret in settings first.", "पहले सेटिंग्स में बैकएंड सेट कीजिए")
+
+    companion object {
+        fun formatTime(hour: Int, minute: Int): String {
+            val h12 = if (hour % 12 == 0) 12 else hour % 12
+            val suffix = if (hour < 12) "AM" else "PM"
+            return if (minute == 0) "$h12 $suffix" else "$h12:${minute.toString().padStart(2, '0')} $suffix"
+        }
+
+        fun formatDuration(seconds: Int): String {
+            val h = seconds / 3600
+            val m = (seconds % 3600) / 60
+            val s = seconds % 60
+            return listOfNotNull(
+                h.takeIf { it > 0 }?.let { plural(it, "hour") },
+                m.takeIf { it > 0 }?.let { plural(it, "minute") },
+                s.takeIf { it > 0 }?.let { plural(it, "second") },
+            ).joinToString(" ")
+        }
+
+        private fun plural(n: Int, unit: String) = if (n == 1) "1 $unit" else "$n ${unit}s"
+
+        private fun joinNames(names: List<String>, and: String) = when (names.size) {
+            0 -> ""
+            1 -> names[0]
+            else -> names.dropLast(1).joinToString(", ") + " $and " + names.last()
+        }
+    }
+}

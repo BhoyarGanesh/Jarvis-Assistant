@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The backend usually runs on a PC in the same Wi-Fi over plain HTTP, so cleartext is allowed.
+     Use an https:// backend URL when you deploy it publicly. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
