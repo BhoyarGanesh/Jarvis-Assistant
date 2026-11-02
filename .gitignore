@@ -1,0 +1,31 @@
+# Secrets
+.env
+*.env.local
+local.properties
+*.jks
+*.keystore
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Gradle / Android
+.gradle/
+.kotlin/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+.idea/
+*.iml
+
+# Large models (downloaded by scripts/download_vosk_model.*)
+app/src/main/assets/model-en-us/
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
