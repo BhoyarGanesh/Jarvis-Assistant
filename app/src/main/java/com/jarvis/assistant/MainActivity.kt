@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -36,6 +38,7 @@ import com.jarvis.assistant.ui.onboarding.OnboardingScreen
 import com.jarvis.assistant.ui.settings.SettingsScreen
 import com.jarvis.assistant.ui.theme.JarvisTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -68,14 +71,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.action == ACTION_LISTEN) {
-            listenRequests++
-            intent.action = null
+        when (intent?.action) {
+            ACTION_LISTEN -> {
+                listenRequests++
+                intent.action = null
+            }
+            // Debug builds only: lets `adb shell am start` fill in the backend so secrets needn't be typed.
+            ACTION_CONFIGURE -> if (BuildConfig.DEBUG) {
+                val url = intent.getStringExtra(EXTRA_BACKEND_URL)
+                val secret = intent.getStringExtra(EXTRA_SHARED_SECRET)
+                intent.action = null
+                lifecycleScope.launch {
+                    url?.let { settingsRepository.setBackendUrl(it) }
+                    secret?.let { settingsRepository.setSharedSecret(it) }
+                    Toast.makeText(this@MainActivity, "Backend settings updated", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
     companion object {
         const val ACTION_LISTEN = "com.jarvis.assistant.action.LISTEN"
+        private const val ACTION_CONFIGURE = "com.jarvis.assistant.action.DEBUG_CONFIGURE"
+        private const val EXTRA_BACKEND_URL = "backend_url"
+        private const val EXTRA_SHARED_SECRET = "shared_secret"
 
         fun listenIntent(context: Context): Intent =
             Intent(context, MainActivity::class.java)

@@ -165,6 +165,12 @@ The onboarding walks through each step, and each one can be skipped and enabled 
    If Jarvis stops listening* and on https://dontkillmyapp.com.
 6. **Backend**: enter `http://<PC IP>:8787` and the shared secret, then tap **Test connection**.
 
+Debug builds only: you can fill in the backend from the PC instead of typing the secret on the phone:
+
+```powershell
+adb shell am start -n com.jarvis.assistant/.MainActivity -a com.jarvis.assistant.action.DEBUG_CONFIGURE --es backend_url "http://192.168.1.20:8787" --es shared_secret "your-secret"
+```
+
 Optional, under Settings: **Show over other apps**. This lets Jarvis bring its screen forward when the
 wake word fires while another app is open.
 
