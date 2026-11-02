@@ -100,6 +100,43 @@ test('gemini 429 maps to rate_limited', async () => {
   await assert.rejects(provider.interpret({ text: 'x' }), (e) => e instanceof ProviderError && e.kind === 'rate_limited');
 });
 
+test('gemini falls back to the next model when one is overloaded', async () => {
+  const tried = [];
+  const provider = new GeminiProvider({
+    model: 'primary',
+    fallbackModels: ['backup'],
+    client: {
+      models: {
+        generateContent: async ({ model }) => {
+          tried.push(model);
+          if (model === 'primary') throw new ApiError({ message: 'high demand', status: 503 });
+          return { functionCalls: [{ name: 'call_contact', args: { name: 'King' } }] };
+        },
+      },
+    },
+  });
+  assert.deepEqual(await provider.interpret({ text: 'call king' }), { tool: 'call_contact', args: { name: 'King' } });
+  assert.deepEqual(tried, ['primary', 'backup']);
+});
+
+test('gemini does not fall back on non-transient errors', async () => {
+  const tried = [];
+  const provider = new GeminiProvider({
+    model: 'primary',
+    fallbackModels: ['backup'],
+    client: {
+      models: {
+        generateContent: async ({ model }) => {
+          tried.push(model);
+          throw new ApiError({ message: 'bad key', status: 403 });
+        },
+      },
+    },
+  });
+  await assert.rejects(provider.interpret({ text: 'x' }), (e) => e.kind === 'not_configured');
+  assert.deepEqual(tried, ['primary']);
+});
+
 test('anthropic 429 maps to rate_limited with retry-after', async () => {
   const provider = fakeAnthropic(async () => {
     throw new Anthropic.RateLimitError(429, { type: 'error' }, 'rate', new Headers({ 'retry-after': '7' }));

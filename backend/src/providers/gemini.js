@@ -9,13 +9,21 @@ const FUNCTION_DECLARATIONS = TOOLS.map((t) => ({
   parametersJsonSchema: jsonSchemaFor(t),
 }));
 
+// Overload, quota and transient server errors are worth trying on the next model.
+const FALLBACK_STATUSES = new Set([429, 500, 502, 503, 504]);
+
 /** @implements {import('./index.js').LLMProvider} */
 export class GeminiProvider {
   name = 'gemini';
 
-  /** @param {{ apiKey?: string, model: string, client?: { models: { generateContent: Function } } }} opts */
-  constructor({ apiKey, model, client }) {
+  /**
+   * @param {{ apiKey?: string, model: string, fallbackModels?: string[], timeoutMs?: number,
+   *           client?: { models: { generateContent: Function } } }} opts
+   */
+  constructor({ apiKey, model, fallbackModels = [], timeoutMs = 12_000, client }) {
     this.model = model;
+    this.models = [model, ...fallbackModels.filter((m) => m && m !== model)];
+    this.timeoutMs = timeoutMs;
     this.configured = Boolean(client) || !isMissingSecret(apiKey);
     this.client = client ?? (this.configured ? new GoogleGenAI({ apiKey }) : null);
   }
@@ -24,33 +32,54 @@ export class GeminiProvider {
     if (!this.configured) {
       throw new ProviderError('not_configured', 'GEMINI_API_KEY is not set in backend/.env');
     }
-    let response;
-    try {
-      response = await this.client.models.generateContent({
-        model: this.model,
-        contents: [{ role: 'user', parts: [{ text: buildUserMessage(request) }] }],
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
-          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.ANY } },
-          maxOutputTokens: 1024,
-        },
-      });
-    } catch (err) {
-      throw mapGeminiError(err);
+    let lastError;
+    for (const model of this.models) {
+      try {
+        return toToolCall(await this.call(model, request));
+      } catch (err) {
+        lastError = err;
+        if (!FALLBACK_STATUSES.has(statusOf(err)) && !isTimeout(err)) break;
+        console.warn(`[gemini] ${model} failed (${statusOf(err) ?? err.message}), trying next model`);
+      }
     }
+    throw mapGeminiError(lastError);
+  }
 
-    const call = response.functionCalls?.[0];
-    if (call) return normalizeToolCall(call.name, call.args);
-    const text = response.text?.trim();
-    return answer(text || FALLBACK_TEXT);
+  call(model, request) {
+    return this.client.models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: buildUserMessage(request) }] }],
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
+        toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.ANY } },
+        maxOutputTokens: 1024,
+        // A voice reply can't wait on the SDK's default exponential backoff; we fall back to another model instead.
+        httpOptions: { timeout: this.timeoutMs, retryOptions: { attempts: 1 } },
+      },
+    });
   }
 }
 
+function toToolCall(response) {
+  const call = response.functionCalls?.[0];
+  if (call) return normalizeToolCall(call.name, call.args);
+  const text = response.text?.trim();
+  return answer(text || FALLBACK_TEXT);
+}
+
+function statusOf(err) {
+  return err instanceof ApiError ? err.status : err?.status;
+}
+
+function isTimeout(err) {
+  return err?.name === 'AbortError' || err?.name === 'TimeoutError' || /timed? ?out|aborted/i.test(err?.message ?? '');
+}
+
 function mapGeminiError(err) {
-  const status = err instanceof ApiError ? err.status : err?.status;
-  if (status === 429) {
-    return new ProviderError('rate_limited', 'Gemini rate limit reached', { cause: err, retryAfterSeconds: 60 });
+  const status = statusOf(err);
+  if (status === 429 || status === 503) {
+    return new ProviderError('rate_limited', 'Gemini is rate limited or overloaded', { cause: err, retryAfterSeconds: 30 });
   }
   if (status === 401 || status === 403 || (status === 400 && /API key/i.test(err?.message ?? ''))) {
     return new ProviderError('not_configured', 'Gemini rejected the API key', { cause: err });

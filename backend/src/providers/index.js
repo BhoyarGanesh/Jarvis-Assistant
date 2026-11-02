@@ -16,7 +16,11 @@ import { MockProvider } from './mock.js';
 export function createProvider(config) {
   switch (config.provider) {
     case 'gemini':
-      return new GeminiProvider({ apiKey: config.geminiApiKey, model: config.geminiModel });
+      return new GeminiProvider({
+        apiKey: config.geminiApiKey,
+        model: config.geminiModel,
+        fallbackModels: config.geminiFallbackModels,
+      });
     case 'anthropic':
       return new AnthropicProvider({
         apiKey: config.anthropicApiKey,

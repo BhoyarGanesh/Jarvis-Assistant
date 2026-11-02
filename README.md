@@ -55,7 +55,8 @@ npm install
 ```ini
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=AIza...your key...
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-3.8-flash
 APP_SHARED_SECRET=your-long-random-secret
 ```
 
@@ -101,7 +102,7 @@ Gemini and Claude clients so no key is needed: `npm test`.
 ```json
 { "text": "jarvis message junior on whatsapp hi", "contacts": ["Junior", "King"], "now": "2026-11-02 18:30 Mon", "locale": "en-US" }
 ```
-→ `200 {"tool":"send_whatsapp","args":{"contact_name":"Junior","message":"hi"},"provider":"gemini","model":"gemini-3.8-flash","latencyMs":612}`
+→ `200 {"tool":"send_whatsapp","args":{"contact_name":"Junior","message":"hi"},"provider":"gemini","model":"gemini-3.5-flash-lite","latencyMs":612}`
 
 Tools: `call_contact(name)`, `send_whatsapp(contact_name, message)`, `send_sms(contact_name, message)`,
 `set_alarm(hour, minute, label)`, `set_timer(seconds, label)`, `open_app(app_name)`, `web_search(query)`,
@@ -216,10 +217,13 @@ wake word fires while another app is open.
   Hilt 2.60.1, Compose BOM 2026.09.00, Room 2.8.5. `compileSdk` and `targetSdk` are 37 (the installed,
   latest stable SDK) and `minSdk` is 26. The build runs on Android Studio's bundled JDK 25 and targets
   Java 17 bytecode.
-- **Default Gemini model `gemini-3.8-flash`.** Google's pricing page (checked 2026-11-02) lists it as the
-  current stable Flash model with a free tier, and Flash models support function calling. Gemini is
-  called with `FunctionCallingConfigMode.ANY`, so it always returns exactly one tool call; `answer` covers
-  small talk.
+- **Default Gemini model `gemini-3.5-flash-lite`, with `gemini-3.8-flash` as fallback.** Both are free-tier
+  models on Google's pricing page (checked 2026-11-02). In live testing, Flash-Lite answered every tool
+  correctly in 0.7–2 s, while `gemini-3.8-flash` was returning 503 "high demand". `gemini-2.5-flash` is
+  closed to new users. The SDK's built-in retries can back off for up to a minute, so they are turned off.
+  Each request instead has a 12 s timeout, and a 429/5xx or timeout moves on to the next model in
+  `GEMINI_FALLBACK_MODELS`. Gemini is called with `FunctionCallingConfigMode.ANY`, so it always returns
+  exactly one tool call; `answer` covers small talk.
 - **Default Claude model `claude-opus-5-5`.** Current models reject forced `tool_choice`, so the backend
   uses `tool_choice: auto` with strict tool schemas and a prompt that requires one tool call. Any plain-text
   reply becomes `answer()`, and a refusal becomes a polite `answer()`. The server-side refusal fallback
