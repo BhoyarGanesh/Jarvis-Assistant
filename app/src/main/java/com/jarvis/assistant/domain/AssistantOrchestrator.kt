@@ -291,8 +291,8 @@ class AssistantOrchestrator(
     private suspend fun fail(message: String, settings: AppSettings) {
         _state.update { it.copy(phase = AssistantPhase.ERROR, errorMessage = message, reply = message) }
         if (settings.voiceReplyEnabled) speechOutput.speak(message, settings.languageTag)
+        // Let the red flash play out even when nothing is spoken.
         delay(ERROR_FLASH_MS)
-        _state.update { it.copy(phase = AssistantPhase.ERROR) }
     }
 
     private fun addCard(kind: ActionKind, title: String, subtitle: String? = null, status: ActionStatus = ActionStatus.SUCCESS) {

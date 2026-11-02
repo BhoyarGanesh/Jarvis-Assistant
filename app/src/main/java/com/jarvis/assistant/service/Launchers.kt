@@ -1,6 +1,7 @@
 package com.jarvis.assistant.service
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -18,14 +19,18 @@ import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.MainActivity
 import com.jarvis.assistant.R
 import com.jarvis.assistant.data.settings.SettingsRepository
-import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /** Quick Settings tile: opens Jarvis already listening. */
 class JarvisTileService : TileService() {
+    // The Intent overload is only used below Android 14, where it is still the supported API.
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val intent = MainActivity.listenIntent(this)
@@ -58,12 +63,19 @@ class JarvisWidgetProvider : AppWidgetProvider() {
  * Restarts wake word listening after a reboot when enabled. Android 14+ forbids starting a
  * microphone foreground service from BOOT_COMPLETED, so there we post a one-tap notification instead.
  */
-@AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
-    @Inject lateinit var settings: SettingsRepository
+
+    // Field injection into receivers needs a super.onReceive() call Kotlin can't make on the
+    // abstract method, so pull dependencies through an entry point instead.
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface Dependencies {
+        fun settings(): SettingsRepository
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val settings = EntryPointAccessors.fromApplication(context.applicationContext, Dependencies::class.java).settings()
         val result = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
             try {

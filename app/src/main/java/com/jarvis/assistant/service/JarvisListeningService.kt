@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -64,10 +65,8 @@ class JarvisListeningService : LifecycleService() {
             return false
         }
         return try {
-            ServiceCompat.startForeground(
-                this, NOTIFICATION_ID, buildNotification(state),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-            )
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(state), type)
             true
         } catch (e: RuntimeException) {
             // Android 14+ refuses a microphone FGS started from the background.

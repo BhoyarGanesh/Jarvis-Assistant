@@ -1,0 +1,75 @@
+package com.jarvis.assistant.ui
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
+
+/** Small wrappers around permission checks and the system settings screens Jarvis sends you to. */
+object SystemSettings {
+    val contactPermissions = arrayOf(
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.CALL_PHONE,
+        Manifest.permission.SEND_SMS,
+    )
+
+    fun granted(context: Context, permission: String): Boolean =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+    fun micGranted(context: Context) = granted(context, Manifest.permission.RECORD_AUDIO)
+
+    fun notificationsGranted(context: Context) =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(context, Manifest.permission.POST_NOTIFICATIONS)
+
+    fun ignoringBatteryOptimizations(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+
+    fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    // A personal, sideloaded assistant that must hear its wake word is exactly the case the exemption exists for.
+    @SuppressLint("BatteryLife")
+    fun requestIgnoreBatteryOptimizations(context: Context) {
+        open(context, Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${context.packageName}".toUri())) ||
+            open(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+
+    fun openAccessibilitySettings(context: Context) {
+        open(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    fun openOverlaySettings(context: Context) {
+        open(context, Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()))
+    }
+
+    fun openAppSettings(context: Context) {
+        open(context, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+    }
+
+    fun openUrl(context: Context, url: String) {
+        open(context, Intent(Intent.ACTION_VIEW, url.toUri()))
+    }
+
+    private fun open(context: Context, intent: Intent): Boolean = try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
+
+    const val OEM_GUIDANCE =
+        "Some phones kill background apps aggressively. If Jarvis stops hearing its wake word:\n" +
+            "• Xiaomi / Redmi / POCO: Settings > Apps > Jarvis > Autostart ON, Battery saver: No restrictions.\n" +
+            "• Samsung: Settings > Battery > Background usage limits > Never sleeping apps > add Jarvis.\n" +
+            "• OnePlus / OPPO / Realme: Battery > Jarvis > Allow background activity; lock Jarvis in Recents.\n" +
+            "• Vivo / iQOO: Battery > Background power consumption > Jarvis > Allow.\n" +
+            "• Huawei / Honor: Battery > App launch > Jarvis > Manage manually, enable all three toggles."
+    const val DONT_KILL_MY_APP = "https://dontkillmyapp.com"
+}
