@@ -35,6 +35,12 @@ export class MockProvider {
     if ((m = t.match(/^(?:call|phone|dial|ring)\s+(.+)$/i))) {
       return normalizeToolCall('call_contact', { name: titleCase(m[1]) });
     }
+    if ((m = t.match(/^read (?:my )?(\w+ )?(?:messages|notifications)$/i))) {
+      return normalizeToolCall('read_notifications', { app_name: m[1] ? titleCase(m[1].trim()) : '', contact_name: '' });
+    }
+    if ((m = t.match(/^reply(?: to (\w+))?(?: saying)?\s+(.+)$/i))) {
+      return normalizeToolCall('reply_message', { contact_name: m[1] ? titleCase(m[1]) : '', message: m[2] });
+    }
     if ((m = t.match(/(?:alarm|wake me up).*?\b(?:at|for)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m|p\.m)?/i))) {
       let hour = Number(m[1]) % 24;
       const pm = /^p/i.test(m[3] ?? '');

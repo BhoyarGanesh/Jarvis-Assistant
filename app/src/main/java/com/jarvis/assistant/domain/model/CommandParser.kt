@@ -45,6 +45,8 @@ object CommandParser {
             "open_app" -> nonBlank("app_name")?.let(AssistantCommand::OpenApp)
             "web_search" -> nonBlank("query")?.let(AssistantCommand::WebSearch)
             "play_music" -> nonBlank("query")?.let(AssistantCommand::PlayMusic)
+            "read_notifications" -> AssistantCommand.ReadNotifications(str("app_name").orEmpty(), str("contact_name").orEmpty())
+            "reply_message" -> nonBlank("message")?.let { AssistantCommand.ReplyMessage(str("contact_name").orEmpty(), it) }
             "answer" -> nonBlank("text")?.let(AssistantCommand::Answer)
             else -> null
         }

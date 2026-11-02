@@ -263,9 +263,15 @@ class AssistantOrchestrator(
             is AssistantCommand.CallContact -> "Calling ${contact?.displayName}"
             is AssistantCommand.SendWhatsApp -> "WhatsApp to ${contact?.displayName}"
             is AssistantCommand.SendSms -> "Text to ${contact?.displayName}"
+            is AssistantCommand.ReplyMessage -> "Reply to ${command.contactName.ifBlank { "latest message" }}"
             else -> command.toolName
         }
-        val subtitle = (command as? AssistantCommand.SendWhatsApp)?.message ?: (command as? AssistantCommand.SendSms)?.message
+        val subtitle = when (command) {
+            is AssistantCommand.SendWhatsApp -> command.message
+            is AssistantCommand.SendSms -> command.message
+            is AssistantCommand.ReplyMessage -> command.message
+            else -> null
+        }
         try {
             for (left in total downTo 1) {
                 _state.update {
@@ -325,6 +331,7 @@ class AssistantOrchestrator(
             is AssistantCommand.OpenApp -> ActionKind.APP
             is AssistantCommand.WebSearch -> ActionKind.SEARCH
             is AssistantCommand.PlayMusic -> ActionKind.MUSIC
+            is AssistantCommand.ReadNotifications, is AssistantCommand.ReplyMessage -> ActionKind.MESSAGES
             is AssistantCommand.Answer -> ActionKind.ANSWER
         }
 
@@ -338,6 +345,10 @@ class AssistantOrchestrator(
             is AssistantCommand.OpenApp -> "Open ${command.appName}"
             is AssistantCommand.WebSearch -> "Search: ${command.query}"
             is AssistantCommand.PlayMusic -> "Play: ${command.query}"
+            is AssistantCommand.ReadNotifications -> "Read messages" +
+                listOf(command.appName, command.contactName).filter { it.isNotBlank() }.joinToString(prefix = " ", separator = ", ")
+                    .takeIf { it.isNotBlank() }.orEmpty()
+            is AssistantCommand.ReplyMessage -> "Reply to ${command.contactName.ifBlank { "latest message" }}: ${command.message}"
             is AssistantCommand.Answer -> command.text
         }
     }

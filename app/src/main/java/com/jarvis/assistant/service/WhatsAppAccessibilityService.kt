@@ -88,6 +88,12 @@ class WhatsAppAccessibilityService : AccessibilityService() {
         return false
     }
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        // The system rebinds this service after Jarvis is killed, so use it to resume listening.
+        JarvisListeningService.ensureRunning(this)
+    }
+
     override fun onInterrupt() {
         handler.removeCallbacks(retry)
     }

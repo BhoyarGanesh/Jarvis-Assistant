@@ -25,6 +25,7 @@ import com.jarvis.assistant.domain.Phrases
 import com.jarvis.assistant.domain.apps.AppMatcher
 import com.jarvis.assistant.domain.apps.InstalledApp
 import com.jarvis.assistant.domain.contacts.Contact
+import com.jarvis.assistant.domain.messages.MessageSelector
 import com.jarvis.assistant.domain.model.AssistantCommand
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,8 @@ import javax.inject.Singleton
 class AndroidActionExecutor @Inject constructor(
     @ApplicationContext private val context: Context,
     private val whatsApp: WhatsAppSendCoordinator,
+    private val notifications: NotificationStore,
+    private val unlock: UnlockCoordinator,
 ) : ActionExecutor {
 
     override suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome =
@@ -64,6 +67,8 @@ class AndroidActionExecutor @Inject constructor(
             is AssistantCommand.OpenApp -> openApp(command.appName, phrases)
             is AssistantCommand.WebSearch -> webSearch(command.query, phrases)
             is AssistantCommand.PlayMusic -> playMusic(command.query, phrases)
+            is AssistantCommand.ReadNotifications -> readNotifications(command, phrases)
+            is AssistantCommand.ReplyMessage -> replyMessage(command, phrases)
             is AssistantCommand.Answer -> ActionOutcome(ActionStatus.SUCCESS, command.text)
         }
 
@@ -93,6 +98,7 @@ class AndroidActionExecutor @Inject constructor(
 
         val autoSend = whatsApp.isServiceEnabled()
         val awaitSent = if (autoSend) whatsApp.arm(message) else null
+        if (!unlock.ensureUnlocked()) return locked(phrases)
         val opened = startActivity(intent)
         if (!opened) {
             return ActionOutcome(ActionStatus.FAILED, phrases.whatsappMissing(), "wa.me intent failed")
@@ -124,6 +130,7 @@ class AndroidActionExecutor @Inject constructor(
             if (sent) return ActionOutcome(ActionStatus.SUCCESS, phrases.smsSent(contact.displayName))
         }
         // No permission (or the send failed): fall back to the SMS app with the text prefilled.
+        if (!unlock.ensureUnlocked()) return locked(phrases)
         val intent = Intent(Intent.ACTION_SENDTO, "smsto:${Uri.encode(contact.phoneNumber)}".toUri())
             .putExtra("sms_body", message)
         return if (startActivity(intent)) {
@@ -133,7 +140,8 @@ class AndroidActionExecutor @Inject constructor(
         }
     }
 
-    private fun openApp(name: String, phrases: Phrases): ActionOutcome {
+    private suspend fun openApp(name: String, phrases: Phrases): ActionOutcome {
+        if (!unlock.ensureUnlocked()) return locked(phrases)
         val pm = context.packageManager
         val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
             .map { InstalledApp(it.loadLabel(pm).toString(), it.activityInfo.packageName) }
@@ -145,7 +153,8 @@ class AndroidActionExecutor @Inject constructor(
         else ActionOutcome(ActionStatus.FAILED, phrases.appNotFound(name))
     }
 
-    private fun webSearch(query: String, phrases: Phrases): ActionOutcome {
+    private suspend fun webSearch(query: String, phrases: Phrases): ActionOutcome {
+        if (!unlock.ensureUnlocked()) return locked(phrases)
         val search = Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, query)
         val browser = Intent(Intent.ACTION_VIEW, "https://www.google.com/search?q=${Uri.encode(query)}".toUri())
         return if (startActivity(search) || startActivity(browser)) {
@@ -155,7 +164,8 @@ class AndroidActionExecutor @Inject constructor(
         }
     }
 
-    private fun playMusic(query: String, phrases: Phrases): ActionOutcome {
+    private suspend fun playMusic(query: String, phrases: Phrases): ActionOutcome {
+        if (!unlock.ensureUnlocked()) return locked(phrases)
         val play = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
             .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
             .putExtra(SearchManager.QUERY, query)
@@ -166,6 +176,43 @@ class AndroidActionExecutor @Inject constructor(
             ActionOutcome(ActionStatus.FAILED, phrases.noApp("play music"))
         }
     }
+
+    private fun readNotifications(command: AssistantCommand.ReadNotifications, phrases: Phrases): ActionOutcome {
+        if (!notifications.isAccessGranted()) {
+            return ActionOutcome(ActionStatus.FAILED, phrases.needNotificationAccess(), "Notification access not granted")
+        }
+        val items = MessageSelector.select(notifications.messages(), command.appName, command.contactName)
+        if (items.isEmpty()) {
+            val speech = if (command.contactName.isNotBlank()) phrases.noMessagesFrom(command.contactName) else phrases.noMessages()
+            return ActionOutcome(ActionStatus.SUCCESS, speech)
+        }
+        notifications.lastRead = items.first()
+        return ActionOutcome(ActionStatus.SUCCESS, phrases.readMessages(items), "${items.size} read")
+    }
+
+    private fun replyMessage(command: AssistantCommand.ReplyMessage, phrases: Phrases): ActionOutcome {
+        if (!notifications.isAccessGranted()) {
+            return ActionOutcome(ActionStatus.FAILED, phrases.needNotificationAccess(), "Notification access not granted")
+        }
+        val all = notifications.messages()
+        val target = MessageSelector.replyTarget(all, command.contactName, notifications.lastRead)
+        if (target == null) {
+            // A matching message exists but its app offers no inline reply.
+            val unrepliable = all.firstOrNull {
+                command.contactName.isNotBlank() && MessageSelector.matchesSender(it.sender, command.contactName)
+            }
+            val speech = unrepliable?.let { phrases.cantReply(it.appLabel) } ?: phrases.nothingToReply()
+            return ActionOutcome(ActionStatus.FAILED, speech)
+        }
+        val name = target.sender.ifBlank { target.appLabel }
+        return if (notifications.reply(target, command.message)) {
+            ActionOutcome(ActionStatus.SUCCESS, phrases.replySent(name), target.appLabel)
+        } else {
+            ActionOutcome(ActionStatus.FAILED, phrases.nothingToReply(), "Reply action no longer valid")
+        }
+    }
+
+    private fun locked(phrases: Phrases) = ActionOutcome(ActionStatus.NEEDS_USER, phrases.unlockFirst(), "Phone locked")
 
     private fun launch(intent: Intent, success: String, missing: String): ActionOutcome =
         if (startActivity(intent)) ActionOutcome(ActionStatus.SUCCESS, success)

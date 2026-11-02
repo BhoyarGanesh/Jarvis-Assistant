@@ -1,5 +1,6 @@
 package com.jarvis.assistant
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -25,10 +26,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jarvis.assistant.data.settings.SettingsRepository
+import com.jarvis.assistant.platform.UnlockCoordinator
 import com.jarvis.assistant.platform.WhatsAppSendCoordinator
 import com.jarvis.assistant.service.JarvisListeningService
 import com.jarvis.assistant.ui.SystemSettings
@@ -46,6 +49,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var whatsApp: WhatsAppSendCoordinator
+    @Inject lateinit var unlock: UnlockCoordinator
 
     /** Bumped for each "start listening" request from the widget, tile or notification. */
     private var listenRequests by mutableIntStateOf(0)
@@ -58,6 +62,28 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                unlock.requests.collect { answer ->
+                    getSystemService(KeyguardManager::class.java).requestDismissKeyguard(
+                        this@MainActivity,
+                        object : KeyguardManager.KeyguardDismissCallback() {
+                            override fun onDismissSucceeded() {
+                                answer.complete(true)
+                            }
+
+                            override fun onDismissCancelled() {
+                                answer.complete(false)
+                            }
+
+                            override fun onDismissError() {
+                                answer.complete(false)
+                            }
+                        },
+                    )
+                }
+            }
+        }
         setContent {
             JarvisTheme {
                 JarvisRoot(settingsRepository, whatsApp, listenRequests)

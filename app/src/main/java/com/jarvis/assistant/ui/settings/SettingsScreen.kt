@@ -64,6 +64,7 @@ fun SettingsScreen(
     val accessibilityOn = remember(resumeTick) { whatsApp.isServiceEnabled() }
     val batteryExempt = remember(resumeTick) { SystemSettings.ignoringBatteryOptimizations(context) }
     val overlayAllowed = remember(resumeTick) { SystemSettings.canDrawOverlays(context) }
+    val messagesOn = remember(resumeTick) { SystemSettings.notificationAccessGranted(context) }
 
     AuroraBackground {
         Column(
@@ -185,6 +186,10 @@ fun SettingsScreen(
             GlassCard(Modifier.fillMaxWidth()) {
                 StatusRow("WhatsApp auto-send (Accessibility)", accessibilityOn, "Open") {
                     SystemSettings.openAccessibilitySettings(context)
+                }
+                Divider()
+                StatusRow("Read & reply to messages (Notification access)", messagesOn, "Open") {
+                    SystemSettings.openNotificationAccessSettings(context)
                 }
                 Divider()
                 StatusRow("Battery optimization exemption", batteryExempt, "Allow") {

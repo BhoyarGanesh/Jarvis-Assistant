@@ -36,6 +36,16 @@ sealed interface AssistantCommand {
         override val toolName = "play_music"
     }
 
+    /** Blank filters mean "any". */
+    data class ReadNotifications(val appName: String, val contactName: String) : AssistantCommand {
+        override val toolName = "read_notifications"
+    }
+
+    /** Blank [contactName] replies to the most recent (or last read) message. */
+    data class ReplyMessage(val contactName: String, val message: String) : AssistantCommand {
+        override val toolName = "reply_message"
+    }
+
     data class Answer(val text: String) : AssistantCommand {
         override val toolName = "answer"
     }
@@ -45,7 +55,8 @@ sealed interface AssistantCommand {
 val AssistantCommand.needsConfirmation: Boolean
     get() = this is AssistantCommand.CallContact ||
         this is AssistantCommand.SendWhatsApp ||
-        this is AssistantCommand.SendSms
+        this is AssistantCommand.SendSms ||
+        this is AssistantCommand.ReplyMessage
 
 val AssistantCommand.contactName: String?
     get() = when (this) {

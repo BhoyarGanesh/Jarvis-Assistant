@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Search
@@ -75,6 +76,7 @@ fun ActionKind.icon(): ImageVector = when (this) {
     ActionKind.APP -> Icons.Rounded.Apps
     ActionKind.SEARCH -> Icons.Rounded.Search
     ActionKind.MUSIC -> Icons.Rounded.MusicNote
+    ActionKind.MESSAGES -> Icons.Rounded.Forum
     ActionKind.ANSWER -> Icons.Rounded.AutoAwesome
     ActionKind.INFO -> Icons.Rounded.Info
 }
@@ -86,6 +88,7 @@ fun ActionKind.accent(): Color = when (this) {
     ActionKind.ALARM, ActionKind.TIMER -> JarvisColors.Warning
     ActionKind.APP, ActionKind.SEARCH -> JarvisColors.Violet
     ActionKind.MUSIC -> JarvisColors.Magenta
+    ActionKind.MESSAGES -> JarvisColors.Cyan
     ActionKind.ANSWER -> Color(0xFF9D7BFF)
     ActionKind.INFO -> JarvisColors.TextSecondary
 }

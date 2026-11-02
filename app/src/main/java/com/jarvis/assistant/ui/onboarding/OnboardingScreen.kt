@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Button
@@ -70,7 +71,7 @@ import com.jarvis.assistant.ui.settings.BackendFields
 import com.jarvis.assistant.ui.settings.SettingsViewModel
 import com.jarvis.assistant.ui.theme.JarvisColors
 
-private enum class Step { WELCOME, MIC, CONTACTS, NOTIFICATIONS, WHATSAPP, BATTERY, BACKEND }
+private enum class Step { WELCOME, MIC, CONTACTS, NOTIFICATIONS, WHATSAPP, MESSAGES, BATTERY, BACKEND }
 
 @Composable
 fun OnboardingScreen(
@@ -97,6 +98,7 @@ fun OnboardingScreen(
     val notificationsGranted = remember(tick) { SystemSettings.notificationsGranted(context) }
     val accessibilityOn = remember(tick) { whatsApp.isServiceEnabled() }
     val batteryExempt = remember(tick) { SystemSettings.ignoringBatteryOptimizations(context) }
+    val messagesOn = remember(tick) { SystemSettings.notificationAccessGranted(context) }
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
     val multiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refresh() }
@@ -167,6 +169,13 @@ fun OnboardingScreen(
                             granted = accessibilityOn,
                             actionLabel = "Open Accessibility settings",
                         ) { SystemSettings.openAccessibilitySettings(context) }
+                        Step.MESSAGES -> PermissionStep(
+                            Icons.Rounded.Forum, "Read & reply to messages",
+                            "Say “Jarvis, read my messages” or “reply I'm on my way”. Jarvis reads new notifications aloud and replies through the notification's own Reply button, so it works with WhatsApp, SMS, Telegram and more.\n\n" +
+                                "Turn on “Jarvis message reader” on the next screen. Messages stay on your phone; only what you say is sent to the backend.",
+                            granted = messagesOn,
+                            actionLabel = "Allow notification access",
+                        ) { SystemSettings.openNotificationAccessSettings(context) }
                         Step.BATTERY -> PermissionStep(
                             Icons.Rounded.BatteryChargingFull, "Keep listening",
                             "Exempt Jarvis from battery optimization so Android doesn't stop the wake word in the background.\n\n" +

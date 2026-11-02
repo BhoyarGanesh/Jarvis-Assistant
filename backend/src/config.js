@@ -8,7 +8,7 @@ export const config = {
   provider: (env.LLM_PROVIDER ?? 'gemini').toLowerCase(),
   geminiApiKey: env.GEMINI_API_KEY,
   geminiModel: env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-  geminiFallbackModels: (env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.8-flash')
+  geminiFallbackModels: (env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.1-flash-lite,gemini-3.8-flash')
     .split(',')
     .map((m) => m.trim())
     .filter(Boolean),

@@ -44,6 +44,7 @@ private fun kindForTool(tool: String) = when (tool) {
     "open_app" -> ActionKind.APP
     "web_search" -> ActionKind.SEARCH
     "play_music" -> ActionKind.MUSIC
+    "read_notifications", "reply_message" -> ActionKind.MESSAGES
     "answer" -> ActionKind.ANSWER
     else -> ActionKind.INFO
 }

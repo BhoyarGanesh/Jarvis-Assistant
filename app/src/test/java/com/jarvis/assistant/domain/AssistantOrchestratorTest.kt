@@ -316,6 +316,21 @@ class AssistantOrchestratorTest {
         assertEquals(listOf("King", "Rahul"), on.lastContactNames)
     }
 
+    @Test fun replyGetsCountdownWithoutContactLookup() = runTest {
+        val h = harness(
+            command = AssistantCommand.ReplyMessage("", "on my way"),
+            contacts = emptyList(),
+            settings = baseSettings.copy(confirmationCountdownEnabled = true),
+        )
+        h.orchestrator.trigger()
+        runCurrent()
+        val confirmation = h.orchestrator.state.value.confirmation
+        assertEquals("Reply to latest message", confirmation?.title)
+        assertEquals("on my way", confirmation?.subtitle)
+        advanceUntilIdle()
+        assertEquals(AssistantCommand.ReplyMessage("", "on my way") to null, h.executed.single())
+    }
+
     @Test fun triggerIgnoredWhileBusy() = runTest {
         val h = harness(settings = baseSettings.copy(confirmationCountdownEnabled = true))
         h.orchestrator.trigger()

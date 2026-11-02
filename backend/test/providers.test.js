@@ -17,6 +17,8 @@ const CASES = [
   ['open_app', { app_name: 'YouTube' }],
   ['web_search', { query: 'weather in Hyderabad' }],
   ['play_music', { query: 'lofi beats' }],
+  ['read_notifications', { app_name: 'WhatsApp', contact_name: '' }],
+  ['reply_message', { contact_name: '', message: 'on my way' }],
   ['answer', { text: 'Paris is the capital of France.' }],
 ];
 

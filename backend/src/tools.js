@@ -83,6 +83,32 @@ export const TOOLS = [
     zod: z.object({ query: z.string().trim().min(1).max(200) }),
   },
   {
+    name: 'read_notifications',
+    description:
+      'Read the user\'s latest messages or notifications aloud ("read my messages", "any new WhatsApp messages?", "what did King say?"). Filter by app and/or sender when the user names one; otherwise use empty strings.',
+    parameters: {
+      app_name: str('App to filter by, e.g. "WhatsApp", or empty string', 50),
+      contact_name: str('Sender to filter by, or empty string', 100),
+    },
+    zod: z.object({
+      app_name: z.string().trim().max(50).default(''),
+      contact_name: z.string().trim().max(100).default(''),
+    }),
+  },
+  {
+    name: 'reply_message',
+    description:
+      'Reply to a message the user received ("reply I\'m on my way", "reply to King saying see you soon"). Use contact_name only if the user names who to reply to; otherwise empty string (replies to the most recent or last-read message). Use this instead of send_whatsapp/send_sms when the user says "reply".',
+    parameters: {
+      contact_name: str('Who to reply to, or empty string for the latest message', 100),
+      message: str('The reply text', 1000),
+    },
+    zod: z.object({
+      contact_name: z.string().trim().max(100).default(''),
+      message: z.string().trim().min(1).max(1000),
+    }),
+  },
+  {
     name: 'answer',
     description:
       'Reply with speech only. Use for general questions, small talk, and for ambiguous or unsupported requests (ask a short clarifying question). Keep it to one or two short spoken sentences.',

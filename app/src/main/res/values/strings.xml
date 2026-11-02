@@ -2,6 +2,7 @@
     <string name="app_name">Jarvis</string>
     <string name="accessibility_label">Jarvis WhatsApp auto-send</string>
     <string name="accessibility_description">Lets Jarvis tap the Send button in WhatsApp after it opens a chat with your message prefilled. Jarvis only acts inside WhatsApp, only right after you asked it to send a message, and never reads your chats.</string>
+    <string name="notification_listener_label">Jarvis message reader</string>
     <string name="tile_label">Ask Jarvis</string>
     <string name="widget_label">Jarvis</string>
     <string name="widget_description">Tap to talk to Jarvis</string>

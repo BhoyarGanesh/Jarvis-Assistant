@@ -56,7 +56,7 @@ npm install
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=AIza...your key...
 GEMINI_MODEL=gemini-3.5-flash-lite
-GEMINI_FALLBACK_MODELS=gemini-3.8-flash
+GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-3.8-flash
 APP_SHARED_SECRET=your-long-random-secret
 ```
 

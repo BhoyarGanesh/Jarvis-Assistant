@@ -3,6 +3,7 @@ package com.jarvis.assistant.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,8 +11,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.jarvis.assistant.service.JarvisNotificationListener
 
 /** Small wrappers around permission checks and the system settings screens Jarvis sends you to. */
 object SystemSettings {
@@ -39,6 +42,19 @@ object SystemSettings {
     fun requestIgnoreBatteryOptimizations(context: Context) {
         open(context, Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${context.packageName}".toUri())) ||
             open(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+
+    fun notificationAccessGranted(context: Context): Boolean =
+        context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
+
+    fun openNotificationAccessSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val component = ComponentName(context, JarvisNotificationListener::class.java)
+            val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component.flattenToString())
+            if (open(context, detail)) return
+        }
+        open(context, Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
     fun openAccessibilitySettings(context: Context) {

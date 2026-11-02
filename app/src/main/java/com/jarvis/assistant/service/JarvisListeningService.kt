@@ -23,7 +23,13 @@ import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.domain.wakeword.WakeWordConfig
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -165,5 +171,25 @@ class JarvisListeningService : LifecycleService() {
         fun stop(context: Context) {
             context.stopService(Intent(context, JarvisListeningService::class.java))
         }
+
+        /**
+         * Called when the system revives Jarvis through one of its bound services (accessibility,
+         * notification listener), e.g. after the user swipes it away from Recents.
+         */
+        fun ensureRunning(context: Context) {
+            val app = context.applicationContext
+            if (ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+            val settings = EntryPointAccessors.fromApplication(app, Dependencies::class.java).settings()
+            CoroutineScope(Dispatchers.Main).launch {
+                val s = settings.current()
+                if (s.onboardingComplete && s.wakeWordEnabled) start(app)
+            }
+        }
+    }
+
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface Dependencies {
+        fun settings(): SettingsRepository
     }
 }

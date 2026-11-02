@@ -1,5 +1,7 @@
 package com.jarvis.assistant.domain
 
+import com.jarvis.assistant.domain.messages.IncomingMessage
+
 /** Short spoken confirmations. Hindi variants are used when the assistant language is Hindi. */
 class Phrases(private val hindi: Boolean) {
     private fun pick(en: String, hi: String) = if (hindi) hi else en
@@ -27,10 +29,29 @@ class Phrases(private val hindi: Boolean) {
     fun needPermission(what: String) =
         pick("I need the $what permission for that. Please allow it in the Jarvis app.", "इसके लिए $what की अनुमति चाहिए")
     fun noPhoneNumber(name: String) = pick("$name doesn't have a phone number.", "$name का फ़ोन नंबर नहीं है")
+    fun needNotificationAccess() =
+        pick("I need notification access to read your messages. Please turn it on in Jarvis settings.", "मैसेज पढ़ने के लिए नोटिफिकेशन एक्सेस चाहिए")
+    fun noMessages() = pick("You have no new messages.", "कोई नया मैसेज नहीं है")
+    fun noMessagesFrom(who: String) = pick("No new messages from $who.", "$who का कोई नया मैसेज नहीं है")
+    fun nothingToReply() = pick("I couldn't find a message to reply to.", "जवाब देने के लिए कोई मैसेज नहीं मिला")
+    fun cantReply(app: String) = pick("$app doesn't let me reply from the notification.", "$app में यहाँ से जवाब नहीं दे सकता")
+    fun replySent(name: String) = pick("Replied to $name", "$name को जवाब भेज दिया")
+    fun unlockFirst() = pick("Please unlock your phone and try again.", "पहले फ़ोन अनलॉक कीजिए")
+
     fun backendNotSet() =
         pick("Please set the backend URL and shared secret in settings first.", "पहले सेटिंग्स में बैकएंड सेट कीजिए")
 
+    fun readMessages(items: List<IncomingMessage>): String {
+        val body = items.joinToString(" ") { m ->
+            val text = m.text.take(MAX_READ_CHARS)
+            if (m.sender.isBlank() || m.sender == m.appLabel) "${m.appLabel}: $text." else "${m.sender} on ${m.appLabel}: $text."
+        }
+        val intro = if (items.size == 1) "" else pick("${items.size} messages. ", "${items.size} मैसेज। ")
+        return intro + body
+    }
+
     companion object {
+        private const val MAX_READ_CHARS = 300
         fun formatTime(hour: Int, minute: Int): String {
             val h12 = if (hour % 12 == 0) 12 else hour % 12
             val suffix = if (hour < 12) "AM" else "PM"

@@ -59,6 +59,8 @@ const PHRASES = [
   ['search for best biryani near me', 'web_search', { query: 'best biryani near me' }],
   ['play arijit singh', 'play_music', { query: 'arijit singh' }],
   ['hello', 'answer', { text: 'Hello! How can I help?' }],
+  ['read my whatsapp messages', 'read_notifications', { app_name: 'Whatsapp', contact_name: '' }],
+  ['reply to king saying on my way', 'reply_message', { contact_name: 'King', message: 'on my way' }],
 ];
 
 for (const [text, tool, args] of PHRASES) {
