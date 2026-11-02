@@ -64,7 +64,7 @@ class VoskWakeWordEngine @Inject constructor(
     override fun stop() {
         requested = false
         release()
-        _state.value = WakeWordEngineState.Stopped
+        updateState(WakeWordEngineState.Stopped)
     }
 
     override suspend fun pause() = withContext(Dispatchers.Main.immediate) {
@@ -74,7 +74,7 @@ class VoskWakeWordEngine @Inject constructor(
             // Give the platform a moment to hand the microphone to the next recorder.
             delay(MIC_HANDOFF_MS)
         }
-        if (requested) _state.value = WakeWordEngineState.Paused
+        if (requested) updateState(WakeWordEngineState.Paused)
     }
 
     override fun resume() {
@@ -87,7 +87,7 @@ class VoskWakeWordEngine @Inject constructor(
     private fun loadModel() {
         if (loading) return
         loading = true
-        _state.value = WakeWordEngineState.Loading
+        updateState(WakeWordEngineState.Loading)
         try {
             StorageService.unpack(
                 context, MODEL_ASSET_DIR, "model",
@@ -99,31 +99,31 @@ class VoskWakeWordEngine @Inject constructor(
                 { e ->
                     loading = false
                     Log.e(TAG, "Vosk model unpack failed", e)
-                    _state.value = WakeWordEngineState.Unavailable(MODEL_MISSING)
+                    updateState(WakeWordEngineState.Unavailable(MODEL_MISSING))
                 },
             )
         } catch (e: IOException) {
             loading = false
             Log.e(TAG, "Vosk model missing", e)
-            _state.value = WakeWordEngineState.Unavailable(MODEL_MISSING)
+            updateState(WakeWordEngineState.Unavailable(MODEL_MISSING))
         }
     }
 
     private fun listen(model: Model) {
         if (service != null) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            _state.value = WakeWordEngineState.Unavailable("Microphone permission is required for the wake word.")
+            updateState(WakeWordEngineState.Unavailable("Microphone permission is required for the wake word."))
             return
         }
         try {
             val rec = Recognizer(model, SAMPLE_RATE, WakeWordDetector.GRAMMAR).apply { setWords(true) }
             recognizer = rec
             service = SpeechService(rec, SAMPLE_RATE).also { it.startListening(listener) }
-            _state.value = WakeWordEngineState.Listening
+            updateState(WakeWordEngineState.Listening)
         } catch (e: IOException) {
             Log.e(TAG, "Could not start Vosk", e)
             release()
-            _state.value = WakeWordEngineState.Unavailable("The microphone is busy. Wake word paused.")
+            updateState(WakeWordEngineState.Unavailable("The microphone is busy. Wake word paused."))
         }
     }
 
@@ -153,7 +153,7 @@ class VoskWakeWordEngine @Inject constructor(
         override fun onError(exception: Exception?) {
             Log.e(TAG, "Vosk error", exception)
             release()
-            _state.value = WakeWordEngineState.Unavailable("Wake word stopped: ${exception?.message ?: "audio error"}")
+            updateState(WakeWordEngineState.Unavailable("Wake word stopped: ${exception?.message ?: "audio error"}"))
         }
 
         override fun onTimeout() {
@@ -162,7 +162,13 @@ class VoskWakeWordEngine @Inject constructor(
         }
     }
 
+    private fun updateState(state: WakeWordEngineState) {
+        if (_state.value != state) Log.i(TAG, "state -> $state")
+        _state.value = state
+    }
+
     private fun fire() {
+        Log.i(TAG, "wake word detected")
         // Reset so the rest of this utterance doesn't re-trigger.
         recognizer?.reset()
         _detections.tryEmit(Unit)
