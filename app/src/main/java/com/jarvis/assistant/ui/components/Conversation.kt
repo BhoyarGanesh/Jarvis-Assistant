@@ -202,7 +202,7 @@ fun CountdownCard(
     modifier: Modifier = Modifier,
 ) {
     val progress by animateFloatAsState(
-        targetValue = (confirmation.secondsLeft - 1).toFloat() / confirmation.totalSeconds,
+        targetValue = if (confirmation.awaitingYes) 1f else (confirmation.secondsLeft - 1).toFloat() / confirmation.totalSeconds,
         animationSpec = tween(1_000),
         label = "countdown",
     )
@@ -217,7 +217,7 @@ fun CountdownCard(
                     strokeWidth = 5.dp,
                     strokeCap = StrokeCap.Round,
                 )
-                Text("${confirmation.secondsLeft}", style = MaterialTheme.typography.headlineMedium)
+                Text(if (confirmation.awaitingYes) "?" else "${confirmation.secondsLeft}", style = MaterialTheme.typography.headlineMedium)
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -227,14 +227,14 @@ fun CountdownCard(
                     Text(confirmation.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 confirmation.subtitle?.let {
-                    Text("“$it”", style = MaterialTheme.typography.bodyMedium, color = JarvisColors.TextSecondary, maxLines = 2)
+                    Text("“$it”", style = MaterialTheme.typography.bodyMedium, color = JarvisColors.TextSecondary, maxLines = if (confirmation.awaitingYes) 6 else 2)
                 }
             }
         }
         Spacer(Modifier.padding(top = 12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onCancel) { Text("Cancel", color = JarvisColors.Error) }
-            TextButton(onClick = onConfirm) { Text("Do it now", color = JarvisColors.Cyan) }
+            TextButton(onClick = onCancel) { Text(if (confirmation.awaitingYes) "Don't send" else "Cancel", color = JarvisColors.Error) }
+            TextButton(onClick = onConfirm) { Text(if (confirmation.awaitingYes) "Send" else "Do it now", color = JarvisColors.Cyan) }
         }
     }
 }

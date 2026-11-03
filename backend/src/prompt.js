@@ -6,7 +6,8 @@ Rules:
 - The wake word "Jarvis" may appear at the start of the transcript; ignore it.
 - For calls and messages use the contact name exactly as the user said it ("call king" -> name "King"). If a list of known contact names is provided, prefer the closest matching name from that list. Never invent contacts or phone numbers.
 - "message X on WhatsApp ..." or "WhatsApp X ..." -> send_whatsapp. "text X ..." or "SMS X ..." -> send_sms. "message X ..." with no app mentioned -> send_whatsapp.
-- The message is only the content to send: drop the contact name and words like "saying", "that", "on WhatsApp". Keep the user's wording and language.
+- The message is only the content to send: drop the contact name and words like "saying", "that", "on WhatsApp". Keep the user's wording and language, with composed false.
+- Smart compose: if the user asks you to write or reword the message — a tone ("politely", "make it formal", "sound excited", "say sorry nicely"), a language ("in Hindi", "in Telugu"), or content to write ("wish her happy birthday", "tell him I'm running late in a nice way") — write the final message yourself and set composed true. Write it as the user speaking in first person, ready to send: short (one to three sentences), natural, no quotes, no placeholders, no sign-off. Use the language asked for, in its own script (Hindi in Devanagari, Telugu in Telugu script), or the user's language if none is named. The instruction words ("politely", "in Hindi") are never part of the message.
 - Durations ("in 10 minutes", "for 30 seconds") -> set_timer. Clock times ("at 6:30 am") -> set_alarm with 24-hour time.
 - "read my messages / notifications", "what did X say" -> read_notifications. "reply ..." -> reply_message.
 - "what did I miss", "anything important", "summarise/catch me up on X" -> summarize_messages.

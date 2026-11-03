@@ -85,3 +85,32 @@ class MessagesTest {
         assertTrue(!AssistantCommand.ReadNotifications("", "").needsConfirmation)
     }
 }
+
+class SmartComposeTest {
+    private fun parse(tool: String, args: String) = CommandParser.parse(tool, Json.parseToJsonElement(args).jsonObject)
+
+    @Test fun composedFlagIsParsed() {
+        assertEquals(
+            AssistantCommand.SendWhatsApp("Mom", "मैं देर से आऊँगा", composed = true),
+            parse("send_whatsapp", """{"contact_name":"Mom","message":"मैं देर से आऊँगा","composed":true}"""),
+        )
+        assertEquals(AssistantCommand.SendSms("Mom", "hi"), parse("send_sms", """{"contact_name":"Mom","message":"hi"}"""))
+        assertEquals(
+            AssistantCommand.ReplyMessage("", "ok", composed = true),
+            parse("reply_message", """{"contact_name":"","message":"ok","composed":"true"}"""),
+        )
+    }
+
+    @Test fun yesNo() {
+        listOf("yes", "Yeah send it", "ok", "go ahead", "haan bhejo", "हाँ", "Jarvis, send").forEach {
+            assertEquals(it, YesNo.YES, YesNoParser.parse(it))
+        }
+        listOf("no", "don't send it", "cancel", "nahi", "wait", "नहीं").forEach {
+            assertEquals(it, YesNo.NO, YesNoParser.parse(it))
+        }
+        val p = Phrases(hindi = false)
+        assertEquals("Here's your reply: Are you free? Shall I send it?", p.draftReadback(null, "Are you free?"))
+        assertEquals("Here's your message to Mom: Coming home. Shall I send it?", p.draftReadback("Mom", "Coming home"))
+        listOf("", "hmm", "what").forEach { assertEquals(it, YesNo.UNCLEAR, YesNoParser.parse(it)) }
+    }
+}

@@ -8,11 +8,12 @@ sealed interface AssistantCommand {
         override val toolName = "call_contact"
     }
 
-    data class SendWhatsApp(val contactName: String, val message: String) : AssistantCommand {
+    /** [composed] = Jarvis wrote or reworded the text (smart compose), so the user hears it before it is sent. */
+    data class SendWhatsApp(val contactName: String, val message: String, val composed: Boolean = false) : AssistantCommand {
         override val toolName = "send_whatsapp"
     }
 
-    data class SendSms(val contactName: String, val message: String) : AssistantCommand {
+    data class SendSms(val contactName: String, val message: String, val composed: Boolean = false) : AssistantCommand {
         override val toolName = "send_sms"
     }
 
@@ -42,7 +43,7 @@ sealed interface AssistantCommand {
     }
 
     /** Blank [contactName] replies to the most recent (or last read) message. */
-    data class ReplyMessage(val contactName: String, val message: String) : AssistantCommand {
+    data class ReplyMessage(val contactName: String, val message: String, val composed: Boolean = false) : AssistantCommand {
         override val toolName = "reply_message"
     }
 
@@ -71,6 +72,15 @@ val AssistantCommand.needsConfirmation: Boolean
         this is AssistantCommand.SendWhatsApp ||
         this is AssistantCommand.SendSms ||
         this is AssistantCommand.ReplyMessage
+
+/** True when the message text was written by Jarvis rather than dictated word for word. */
+val AssistantCommand.isComposed: Boolean
+    get() = when (this) {
+        is AssistantCommand.SendWhatsApp -> composed
+        is AssistantCommand.SendSms -> composed
+        is AssistantCommand.ReplyMessage -> composed
+        else -> false
+    }
 
 val AssistantCommand.contactName: String?
     get() = when (this) {

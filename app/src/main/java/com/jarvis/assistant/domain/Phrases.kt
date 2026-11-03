@@ -18,6 +18,17 @@ class Phrases(private val hindi: Boolean) {
     fun searching(query: String) = pick("Searching for $query", "$query खोज रहा हूँ")
     fun playing(query: String) = pick("Playing $query", "$query चला रहा हूँ")
     fun cancelled() = pick("Cancelled", "रद्द कर दिया")
+    fun draftReadback(to: String?, message: String): String {
+        // End the draft with exactly one sentence mark before the question.
+        val text = message.trim().let { if (it.lastOrNull() in listOf('.', '!', '?', '।')) it else "$it." }
+        return if (to == null) {
+            pick("Here's your reply: $text Shall I send it?", "आपका जवाब: $text भेज दूँ?")
+        } else {
+            pick("Here's your message to $to: $text Shall I send it?", "$to के लिए मैसेज: $text भेज दूँ?")
+        }
+    }
+    fun sayYesOrNo() = pick("Should I send it? Say yes or no.", "भेज दूँ? हाँ या ना बोलिए")
+    fun draftNotSent() = pick("Okay, I won't send it.", "ठीक है, नहीं भेजा")
     fun notFound(name: String) = pick("I couldn't find $name in your contacts.", "$name आपके कॉन्टैक्ट्स में नहीं मिला")
     fun whichOne(options: List<String>) =
         pick("I found ${joinNames(options, "and")}. Which one?", "${joinNames(options, "और")} मिले। कौन सा?")

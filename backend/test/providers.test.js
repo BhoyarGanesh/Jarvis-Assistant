@@ -10,15 +10,15 @@ import { normalizeToolCall, TOOL_NAMES } from '../src/tools.js';
 // Each tool: a raw provider call and the normalized output we expect from it.
 const CASES = [
   ['call_contact', { name: 'King' }],
-  ['send_whatsapp', { contact_name: 'Junior', message: 'hi' }],
-  ['send_sms', { contact_name: 'Mom', message: 'on my way' }],
+  ['send_whatsapp', { contact_name: 'Junior', message: 'hi', composed: false }],
+  ['send_sms', { contact_name: 'Mom', message: 'on my way', composed: true }],
   ['set_alarm', { hour: 6, minute: 30, label: 'gym' }],
   ['set_timer', { seconds: 300, label: '' }],
   ['open_app', { app_name: 'YouTube' }],
   ['web_search', { query: 'weather in Hyderabad' }],
   ['play_music', { query: 'lofi beats' }],
   ['read_notifications', { app_name: 'WhatsApp', contact_name: '' }],
-  ['reply_message', { contact_name: '', message: 'on my way' }],
+  ['reply_message', { contact_name: '', message: 'on my way', composed: false }],
   ['screen_question', { question: 'is this a scam?' }],
   ['summarize_messages', { app_name: 'WhatsApp', contact_name: 'Family', question: 'summarise my family group' }],
   ['find_phone', {}],
@@ -221,4 +221,14 @@ test('generate without a key reports not_configured', async () => {
     new GeminiProvider({ apiKey: '', model: 'm' }).generate({ system: 's', text: 't' }),
     (e) => e.kind === 'not_configured',
   );
+});
+
+test('message tools carry a composed flag that defaults to false', () => {
+  const dictated = normalizeToolCall('send_whatsapp', { contact_name: 'Junior', message: 'hi' });
+  assert.equal(dictated.args.composed, false);
+  const composed = normalizeToolCall('send_sms', { contact_name: 'Mom', message: 'Sorry, I am running late.', composed: true });
+  assert.equal(composed.args.composed, true);
+  // Some models send booleans as strings.
+  assert.equal(normalizeToolCall('reply_message', { contact_name: '', message: 'ok', composed: 'true' }).args.composed, true);
+  assert.equal(normalizeToolCall('reply_message', { contact_name: '', message: 'ok', composed: 'false' }).args.composed, false);
 });

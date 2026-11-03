@@ -9,6 +9,7 @@ import com.jarvis.assistant.domain.contacts.ContactMatch
 import com.jarvis.assistant.domain.contacts.ContactMatcher
 import com.jarvis.assistant.domain.model.AssistantCommand
 import com.jarvis.assistant.domain.model.contactName
+import com.jarvis.assistant.domain.model.isComposed
 import com.jarvis.assistant.domain.model.needsConfirmation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -305,7 +306,14 @@ class AssistantOrchestrator(
             }
         }
 
-        if (command.needsConfirmation && settings.confirmationCountdownEnabled) {
+        if (command.isComposed) {
+            if (!confirmDraft(command, contact, settings, phrases)) {
+                addCard(kindOf(command), phrases.draftNotSent(), describe(command, contact), ActionStatus.CANCELLED)
+                log(transcript, command.toolName, "Not sent: ${describe(command, contact)}", ActionStatus.CANCELLED)
+                speak(phrases.draftNotSent(), settings)
+                return
+            }
+        } else if (command.needsConfirmation && settings.confirmationCountdownEnabled) {
             val confirmed = countdown(command, contact, settings)
             if (!confirmed) {
                 addCard(kindOf(command), phrases.cancelled(), describe(command, contact), ActionStatus.CANCELLED)
@@ -386,23 +394,70 @@ class AssistantOrchestrator(
         }
     }
 
+    /**
+     * Smart compose: Jarvis wrote this message, so read it aloud and send only on a spoken
+     * or tapped "yes". Anything else (no, silence, two unclear answers) keeps it unsent.
+     */
+    private suspend fun confirmDraft(command: AssistantCommand, contact: Contact?, settings: AppSettings, phrases: Phrases): Boolean {
+        val message = draftText(command) ?: return true
+        val to = contact?.displayName ?: (command as? AssistantCommand.ReplyMessage)?.contactName?.ifBlank { null }
+        val decision = CompletableDeferred<Boolean>().also { confirmDecision = it }
+        _state.update {
+            it.copy(confirmation = PendingConfirmation(confirmationTitle(command, contact), message, kindOf(command), 1, 1, awaitingYes = true))
+        }
+        try {
+            var prompt = phrases.draftReadback(to, message)
+            repeat(2) {
+                speak(prompt, settings)
+                if (decision.isCompleted) return decision.await()
+                val heard = coroutineScope {
+                    val voice = async {
+                        when (val result = listen(settings)) {
+                            is SpeechResult.Text -> YesNoParser.parse(result.text)
+                            else -> YesNo.UNCLEAR
+                        }
+                    }
+                    val answer = select {
+                        decision.onAwait { if (it) YesNo.YES else YesNo.NO }
+                        voice.onAwait { it }
+                    }
+                    if (voice.isActive) {
+                        speechInput.cancel()
+                        voice.cancel()
+                    }
+                    answer
+                }
+                if (heard != YesNo.UNCLEAR) return heard == YesNo.YES
+                prompt = phrases.sayYesOrNo()
+            }
+            return false
+        } finally {
+            confirmDecision = null
+            _state.update { it.copy(confirmation = null) }
+        }
+    }
+
+    private fun draftText(command: AssistantCommand): String? = when (command) {
+        is AssistantCommand.SendWhatsApp -> command.message
+        is AssistantCommand.SendSms -> command.message
+        is AssistantCommand.ReplyMessage -> command.message
+        else -> null
+    }
+
+    private fun confirmationTitle(command: AssistantCommand, contact: Contact?): String = when (command) {
+        is AssistantCommand.CallContact -> "Calling ${contact?.displayName}"
+        is AssistantCommand.SendWhatsApp -> "WhatsApp to ${contact?.displayName}"
+        is AssistantCommand.SendSms -> "Text to ${contact?.displayName}"
+        is AssistantCommand.ReplyMessage -> "Reply to ${command.contactName.ifBlank { "latest message" }}"
+        else -> command.toolName
+    }
+
     /** Returns true to proceed, false if the user cancelled. */
     private suspend fun countdown(command: AssistantCommand, contact: Contact?, settings: AppSettings): Boolean {
         val decision = CompletableDeferred<Boolean>().also { confirmDecision = it }
         val total = settings.confirmationSeconds.coerceIn(1, 10)
-        val title = when (command) {
-            is AssistantCommand.CallContact -> "Calling ${contact?.displayName}"
-            is AssistantCommand.SendWhatsApp -> "WhatsApp to ${contact?.displayName}"
-            is AssistantCommand.SendSms -> "Text to ${contact?.displayName}"
-            is AssistantCommand.ReplyMessage -> "Reply to ${command.contactName.ifBlank { "latest message" }}"
-            else -> command.toolName
-        }
-        val subtitle = when (command) {
-            is AssistantCommand.SendWhatsApp -> command.message
-            is AssistantCommand.SendSms -> command.message
-            is AssistantCommand.ReplyMessage -> command.message
-            else -> null
-        }
+        val title = confirmationTitle(command, contact)
+        val subtitle = draftText(command)
         try {
             for (left in total downTo 1) {
                 _state.update {

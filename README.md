@@ -193,6 +193,12 @@ wake word fires while another app is open.
   it off or change its length in Settings.
 - If several contacts match ("King Kumar" and "King Singh"), Jarvis asks which one. Answer by name,
   say "the second one", or tap.
+- **Smart compose.** Ask Jarvis to write the message for you: "message Junior, say sorry I'm late, make it
+  polite", "text Mom in Hindi that I'll reach by 8", "wish King happy birthday, sound excited", or
+  "reply in Telugu that I'm coming". Jarvis reads the draft aloud and asks "Shall I send it?". Say yes or
+  tap **Send** to send it, or say no or tap **Don't send**. Messages you dictate word for word are
+  sent as before, without the read-back. Drafts in another script, such as Telugu, are read aloud by your
+  phone's text-to-speech voice, which may not pronounce them well, but they are sent correctly.
 - **"What's on my screen?"** In any app, say "Jarvis", then "explain this", "translate this", "what should
   I reply to this?" or "is this offer a scam?". The screenshot is taken the moment the wake word fires
   (before Jarvis's own screen appears), kept in memory for up to a minute, and sent to the backend only

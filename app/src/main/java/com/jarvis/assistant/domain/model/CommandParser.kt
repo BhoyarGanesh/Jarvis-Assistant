@@ -2,6 +2,7 @@ package com.jarvis.assistant.domain.model
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 
 /**
@@ -19,6 +20,9 @@ object CommandParser {
         fun int(key: String): Int? =
             (args[key] as? JsonPrimitive)?.let { it.intOrNull ?: it.content.toDoubleOrNull()?.toInt() }
 
+        fun bool(key: String): Boolean =
+            (args[key] as? JsonPrimitive)?.let { it.booleanOrNull ?: it.content.equals("true", ignoreCase = true) } ?: false
+
         fun nonBlank(key: String) = str(key)?.takeIf { it.isNotEmpty() }
 
         val command: AssistantCommand? = when (tool) {
@@ -26,12 +30,12 @@ object CommandParser {
             "send_whatsapp" -> {
                 val name = nonBlank("contact_name")
                 val message = nonBlank("message")
-                if (name != null && message != null) AssistantCommand.SendWhatsApp(name, message) else null
+                if (name != null && message != null) AssistantCommand.SendWhatsApp(name, message, bool("composed")) else null
             }
             "send_sms" -> {
                 val name = nonBlank("contact_name")
                 val message = nonBlank("message")
-                if (name != null && message != null) AssistantCommand.SendSms(name, message) else null
+                if (name != null && message != null) AssistantCommand.SendSms(name, message, bool("composed")) else null
             }
             "set_alarm" -> {
                 val hour = int("hour")
@@ -46,7 +50,7 @@ object CommandParser {
             "web_search" -> nonBlank("query")?.let(AssistantCommand::WebSearch)
             "play_music" -> nonBlank("query")?.let(AssistantCommand::PlayMusic)
             "read_notifications" -> AssistantCommand.ReadNotifications(str("app_name").orEmpty(), str("contact_name").orEmpty())
-            "reply_message" -> nonBlank("message")?.let { AssistantCommand.ReplyMessage(str("contact_name").orEmpty(), it) }
+            "reply_message" -> nonBlank("message")?.let { AssistantCommand.ReplyMessage(str("contact_name").orEmpty(), it, bool("composed")) }
             "screen_question" -> nonBlank("question")?.let(AssistantCommand::ScreenQuestion)
             "summarize_messages" -> AssistantCommand.SummarizeMessages(
                 str("app_name").orEmpty(),

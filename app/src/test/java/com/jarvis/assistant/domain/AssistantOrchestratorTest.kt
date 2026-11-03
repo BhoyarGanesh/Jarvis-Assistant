@@ -461,4 +461,64 @@ class AssistantOrchestratorTest {
         assertEquals(1, h.interpretCalls)
         assertFalse(h.orchestrator.isBusy)
     }
+
+    private val draft = AssistantCommand.SendWhatsApp("junior", "Sorry, I'm running late.", composed = true)
+
+    @Test fun composedMessageIsReadBackAndSentOnYes() = runTest {
+        val h = harness(
+            command = draft,
+            speech = listOf({ SpeechResult.Text("message junior saying sorry I'm late, politely") }, { SpeechResult.Text("yes send it") }),
+        )
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+
+        assertEquals("Here's your message to Rahul: Sorry, I'm running late. Shall I send it?", h.spoken.first())
+        assertEquals(listOf(draft to junior), h.executed)
+    }
+
+    @Test fun composedMessageNotSentOnNo() = runTest {
+        val h = harness(command = draft, speech = listOf({ SpeechResult.Text("text junior") }, { SpeechResult.Text("no, don't") }))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+
+        assertTrue(h.executed.isEmpty())
+        assertEquals("Okay, I won't send it.", h.spoken.last())
+        assertEquals(ActionStatus.CANCELLED, h.logged.single().status)
+    }
+
+    @Test fun composedMessageAsksOnceMoreThenStaysUnsent() = runTest {
+        val h = harness(command = draft, speech = listOf({ SpeechResult.Text("text junior") }, { SpeechResult.Text("hmm") }))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+
+        assertTrue(h.executed.isEmpty())
+        assertTrue("Should I send it? Say yes or no." in h.spoken)
+    }
+
+    @Test fun composedMessageSkipsCountdownAndAcceptsTap() = runTest {
+        val never = CompletableDeferred<SpeechResult>()
+        val h = harness(
+            command = draft,
+            settings = baseSettings.copy(confirmationCountdownEnabled = true, confirmationSeconds = 3),
+            speech = listOf({ SpeechResult.Text("text junior") }, { never.await() }),
+        )
+        h.orchestrator.trigger()
+        runCurrent()
+
+        val pending = h.orchestrator.state.value.confirmation
+        assertTrue(pending!!.awaitingYes)
+        assertEquals("Sorry, I'm running late.", pending.subtitle)
+        h.orchestrator.confirmNow()
+        advanceUntilIdle()
+        assertEquals(1, h.executed.size)
+        assertNull(h.orchestrator.state.value.confirmation)
+    }
+
+    @Test fun dictatedMessageIsNotReadBack() = runTest {
+        val h = harness(command = AssistantCommand.SendWhatsApp("junior", "hi"))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertTrue(h.spoken.none { "Shall I send it" in it })
+        assertEquals(1, h.executed.size)
+    }
 }

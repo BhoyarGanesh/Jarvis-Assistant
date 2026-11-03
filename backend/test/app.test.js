@@ -51,8 +51,8 @@ test('validates input', async () => {
 
 const PHRASES = [
   ['Jarvis call king', 'call_contact', { name: 'King' }],
-  ['Jarvis message junior on WhatsApp hi', 'send_whatsapp', { contact_name: 'Junior', message: 'hi' }],
-  ['text mom on my way', 'send_sms', { contact_name: 'Mom', message: 'on my way' }],
+  ['Jarvis message junior on WhatsApp hi', 'send_whatsapp', { contact_name: 'Junior', message: 'hi', composed: false }],
+  ['text mom on my way', 'send_sms', { contact_name: 'Mom', message: 'on my way', composed: false }],
   ['set an alarm for 6:30 pm', 'set_alarm', { hour: 18, minute: 30, label: '' }],
   ['set a timer for 5 minutes', 'set_timer', { seconds: 300, label: '' }],
   ['open youtube', 'open_app', { app_name: 'Youtube' }],
@@ -60,7 +60,7 @@ const PHRASES = [
   ['play arijit singh', 'play_music', { query: 'arijit singh' }],
   ['hello', 'answer', { text: 'Hello! How can I help?' }],
   ['read my whatsapp messages', 'read_notifications', { app_name: 'Whatsapp', contact_name: '' }],
-  ['reply to king saying on my way', 'reply_message', { contact_name: 'King', message: 'on my way' }],
+  ['reply to king saying on my way', 'reply_message', { contact_name: 'King', message: 'on my way', composed: false }],
   ['Jarvis, where are you?', 'find_phone', {}],
   ['is this a scam', 'screen_question', { question: 'is this a scam' }],
   ['what did I miss', 'summarize_messages', { app_name: '', contact_name: '', question: 'what did I miss' }],

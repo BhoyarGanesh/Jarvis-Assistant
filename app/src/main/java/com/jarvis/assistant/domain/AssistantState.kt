@@ -19,6 +19,8 @@ data class PendingConfirmation(
     val kind: ActionKind,
     val totalSeconds: Int,
     val secondsLeft: Int,
+    /** A drafted message waiting for "yes" instead of a countdown. */
+    val awaitingYes: Boolean = false,
 )
 
 data class Disambiguation(val prompt: String, val options: List<String>)

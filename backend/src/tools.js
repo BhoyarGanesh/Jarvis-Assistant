@@ -4,6 +4,13 @@ import { z } from 'zod';
 // sent to providers and a zod schema used to validate whatever the provider returns.
 const str = (description, maxLength = 500) => ({ type: 'string', description, maxLength });
 const int = (description, minimum, maximum) => ({ type: 'integer', description, minimum, maximum });
+const composedParam = {
+  type: 'boolean',
+  description:
+    'true if you wrote or reworded the message (the user asked for a tone, a language, a translation or for you to write it); false if it is the user\'s own dictated words',
+};
+// Models sometimes send booleans as strings.
+const composedZod = z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean()).default(false);
 
 export const TOOLS = [
   {
@@ -19,10 +26,12 @@ export const TOOLS = [
     parameters: {
       contact_name: str('Contact name as spoken by the user', 100),
       message: str('The message text to send, without the contact name or the word WhatsApp', 1000),
+      composed: composedParam,
     },
     zod: z.object({
       contact_name: z.string().trim().min(1).max(100),
       message: z.string().trim().min(1).max(1000),
+      composed: composedZod,
     }),
   },
   {
@@ -31,10 +40,12 @@ export const TOOLS = [
     parameters: {
       contact_name: str('Contact name as spoken by the user', 100),
       message: str('The message text to send', 1000),
+      composed: composedParam,
     },
     zod: z.object({
       contact_name: z.string().trim().min(1).max(100),
       message: z.string().trim().min(1).max(1000),
+      composed: composedZod,
     }),
   },
   {
@@ -102,10 +113,12 @@ export const TOOLS = [
     parameters: {
       contact_name: str('Who to reply to, or empty string for the latest message', 100),
       message: str('The reply text', 1000),
+      composed: composedParam,
     },
     zod: z.object({
       contact_name: z.string().trim().max(100).default(''),
       message: z.string().trim().min(1).max(1000),
+      composed: composedZod,
     }),
   },
   {
