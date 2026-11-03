@@ -19,6 +19,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.text.SimpleDateFormat
@@ -61,6 +62,9 @@ private data class SummaryRequestBody(
     val locale: String,
 )
 
+@Serializable
+private data class SpeakRequestBody(val text: String, val voice: String)
+
 /** Every endpoint answers with a subset of these fields. */
 @Serializable
 private data class BackendResponseBody(
@@ -82,6 +86,13 @@ sealed interface TextResult {
     data class Failed(val spokenMessage: String) : TextResult
 }
 
+/** A voice reply being streamed from the backend, or why there isn't one. */
+sealed interface SpeechAudio {
+    /** Raw 16-bit mono PCM. The caller must close [body]. */
+    class Stream(val sampleRate: Int, val body: ResponseBody) : SpeechAudio
+    data class Unavailable(val reason: String) : SpeechAudio
+}
+
 /** Talks to the Jarvis backend. The LLM is only ever reached through here. */
 class BackendClient(
     private val settings: SettingsSource,
@@ -95,6 +106,18 @@ class BackendClient(
         http.newBuilder()
             .readTimeout(45, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * Voice replies stream for as long as the sentence lasts, so there is no overall call timeout;
+     * if the first audio doesn't arrive quickly the phone uses its own voice instead.
+     */
+    private val speechHttp: OkHttpClient by lazy {
+        http.newBuilder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
             .build()
     }
 
@@ -139,6 +162,30 @@ class BackendClient(
             locale = settings.current().languageTag,
         )
         return postForText("/summarize", body, SummaryRequestBody.serializer())
+    }
+
+    /** Starts streaming [text] spoken in [voice]. Never throws; failures come back as [SpeechAudio.Unavailable]. */
+    suspend fun openSpeech(text: String, voice: String): SpeechAudio {
+        val s = settings.current()
+        val payload = json.encodeToString(SpeakRequestBody.serializer(), SpeakRequestBody(text.take(1000), voice))
+        val request = runCatching {
+            Request.Builder()
+                .url(s.backendUrl.trimEnd('/') + "/speak")
+                .header("X-Jarvis-Secret", s.sharedSecret)
+                .post(payload.toRequestBody(JSON))
+                .build()
+        }.getOrElse { return SpeechAudio.Unavailable("invalid backend URL") }
+        val response = try {
+            speechHttp.newCall(request).await()
+        } catch (e: IOException) {
+            return SpeechAudio.Unavailable(e.message ?: "network error")
+        }
+        if (!response.isSuccessful) {
+            response.close()
+            return SpeechAudio.Unavailable("HTTP ${response.code}")
+        }
+        val rate = response.header("X-Sample-Rate")?.toIntOrNull()?.takeIf { it in 8_000..48_000 } ?: 24_000
+        return SpeechAudio.Stream(rate, response.body)
     }
 
     private suspend fun <T> postForText(path: String, body: T, serializer: KSerializer<T>): TextResult =

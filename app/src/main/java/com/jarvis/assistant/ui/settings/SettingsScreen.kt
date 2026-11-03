@@ -3,6 +3,7 @@ package com.jarvis.assistant.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.assistant.BuildConfig
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
 import com.jarvis.assistant.platform.WhatsAppSendCoordinator
+import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.ui.SystemSettings
 import com.jarvis.assistant.ui.components.AuroraBackground
 import com.jarvis.assistant.ui.components.GlassCard
@@ -150,8 +152,34 @@ fun SettingsScreen(
             GlassCard(Modifier.fillMaxWidth()) {
                 SettingSwitch("Spoken replies", "Jarvis says confirmations like “Calling King”.", settings.voiceReplyEnabled, viewModel::setVoiceReply)
                 Divider()
+                Text("Her voice", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 6.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    VOICES.forEach { (name, label) ->
+                        FilterChip(
+                            selected = settings.voiceName == name,
+                            onClick = { viewModel.chooseVoice(name) },
+                            label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = JarvisColors.Violet.copy(alpha = 0.4f)),
+                        )
+                    }
+                }
+                Text(
+                    "Tap a voice to hear it. AI voices come from your backend (Gemini text-to-speech); the free plan allows " +
+                        "only a few replies a minute, after which Jarvis uses the phone voice until it frees up.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisColors.TextMuted,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Divider()
+                SettingSwitch(
+                    "Animated character",
+                    "Show Jarvis as an animated girl who lip-syncs while she talks, instead of the orb.",
+                    settings.showAvatar,
+                    viewModel::setShowAvatar,
+                )
+                Divider()
                 Text("Language", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     listOf("en-US" to "English", "en-IN" to "English (India)", "hi-IN" to "हिन्दी").forEach { (tag, label) ->
                         FilterChip(
                             selected = settings.languageTag == tag,
@@ -285,3 +313,12 @@ private fun StatusRow(title: String, ok: Boolean, action: String, onClick: () ->
         if (!ok) TextButton(onClick = onClick) { Text(action) }
     }
 }
+
+/** Gemini voice name to chip label; "" is the phone's own text-to-speech. */
+private val VOICES = listOf(
+    "Despina" to "Smooth",
+    "Achernar" to "Soft",
+    "Leda" to "Youthful",
+    "Vindemiatrix" to "Gentle",
+    AppSettings.PHONE_VOICE to "Phone voice",
+)

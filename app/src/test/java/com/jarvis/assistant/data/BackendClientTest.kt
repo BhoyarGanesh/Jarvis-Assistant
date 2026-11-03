@@ -2,6 +2,7 @@ package com.jarvis.assistant.data
 
 import com.jarvis.assistant.data.remote.BackendClient
 import com.jarvis.assistant.data.remote.HealthResult
+import com.jarvis.assistant.data.remote.SpeechAudio
 import com.jarvis.assistant.data.remote.TextResult
 import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.domain.InterpretResult
@@ -131,5 +132,29 @@ class BackendClientTest {
         assertTrue((client.askAboutScreen("explain this", "AAAA") as TextResult.Failed).spokenMessage.contains("out of date"))
         enqueue(200, """{"text":"  "}""")
         assertTrue(client.askAboutScreen("explain this", "AAAA") is TextResult.Failed)
+    }
+
+    @Test fun speechStreamsAudioWithSampleRate() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).addHeader("X-Sample-Rate", "24000")
+                .body(okio.Buffer().write(byteArrayOf(1, 0, 2, 0))).build(),
+        )
+        val audio = client.openSpeech("Calling King", "Despina") as SpeechAudio.Stream
+        assertEquals(24_000, audio.sampleRate)
+        assertEquals(listOf<Byte>(1, 0, 2, 0), audio.body.use { it.bytes().toList() })
+
+        val request = server.takeRequest()
+        assertEquals("/speak", request.url.encodedPath)
+        assertEquals("top-secret", request.headers["X-Jarvis-Secret"])
+        val body = Json.parseToJsonElement(request.body!!.utf8()).jsonObject
+        assertEquals("Despina", body["voice"]!!.jsonPrimitive.content)
+        assertEquals("Calling King", body["text"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun speechFailuresMeanUseThePhoneVoice() = runTest {
+        enqueue(429, """{"error":"rate_limited"}""")
+        assertEquals(SpeechAudio.Unavailable("HTTP 429"), client.openSpeech("hi", "Despina"))
+        server.close()
+        assertTrue(client.openSpeech("hi", "Despina") is SpeechAudio.Unavailable)
     }
 }

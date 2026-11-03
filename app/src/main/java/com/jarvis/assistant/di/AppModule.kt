@@ -13,7 +13,7 @@ import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.platform.AndroidActionExecutor
 import com.jarvis.assistant.platform.AndroidCallControl
 import com.jarvis.assistant.voice.AndroidSpeechInput
-import com.jarvis.assistant.voice.AndroidSpeechOutput
+import com.jarvis.assistant.voice.CloudSpeechOutput
 import com.jarvis.assistant.voice.ToneChime
 import com.jarvis.assistant.voice.VoskWakeWordEngine
 import dagger.Binds
@@ -71,7 +71,7 @@ object AppModule {
         backend: BackendClient,
         contacts: AndroidContactsSource,
         speechInput: AndroidSpeechInput,
-        speechOutput: AndroidSpeechOutput,
+        speechOutput: CloudSpeechOutput,
         chime: ToneChime,
         wakeWord: WakeWordEngine,
         executor: AndroidActionExecutor,

@@ -15,6 +15,11 @@ export const config = {
   anthropicApiKey: env.ANTHROPIC_API_KEY,
   claudeModel: env.CLAUDE_MODEL || 'claude-opus-5-5',
   claudeEffort: env.CLAUDE_EFFORT ?? 'low',
+  ttsModels: (env.GEMINI_TTS_MODELS ?? 'gemini-3.8-flash-lite-tts,gemini-3.8-flash-tts,gemini-3.1-flash-tts-preview')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean),
+  ttsVoice: env.GEMINI_TTS_VOICE || 'Despina',
   sharedSecret: env.APP_SHARED_SECRET,
   rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 30),
 };

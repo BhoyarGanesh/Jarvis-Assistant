@@ -23,6 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class AndroidSpeechOutput @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val mouth: MouthLevel,
 ) : SpeechOutput {
 
     private var tts: TextToSpeech? = null
@@ -41,19 +42,13 @@ class AndroidSpeechOutput @Inject constructor(
                     .build(),
             )
             setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String) = Unit
-                override fun onDone(utteranceId: String) {
-                    pending.remove(utteranceId)?.complete(Unit)
-                }
+                override fun onStart(utteranceId: String) = mouth.talking()
+                override fun onDone(utteranceId: String) = finish(utteranceId)
 
                 @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String) {
-                    pending.remove(utteranceId)?.complete(Unit)
-                }
+                override fun onError(utteranceId: String) = finish(utteranceId)
 
-                override fun onStop(utteranceId: String, interrupted: Boolean) {
-                    pending.remove(utteranceId)?.complete(Unit)
-                }
+                override fun onStop(utteranceId: String, interrupted: Boolean) = finish(utteranceId)
             })
         }
         return deferred
@@ -82,7 +77,13 @@ class AndroidSpeechOutput @Inject constructor(
         withTimeoutOrNull(5_000L + text.length * 120L) { done.await() }
     }
 
+    private fun finish(utteranceId: String) {
+        mouth.silent()
+        pending.remove(utteranceId)?.complete(Unit)
+    }
+
     override fun stop() {
+        mouth.silent()
         tts?.stop()
         pending.values.forEach { it.complete(Unit) }
         pending.clear()

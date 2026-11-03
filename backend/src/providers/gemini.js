@@ -92,15 +92,15 @@ function toToolCall(response) {
   return answer(text || FALLBACK_TEXT);
 }
 
-function statusOf(err) {
+export function statusOf(err) {
   return err instanceof ApiError ? err.status : err?.status;
 }
 
-function isTimeout(err) {
+export function isTimeout(err) {
   return err?.name === 'AbortError' || err?.name === 'TimeoutError' || /timed? ?out|aborted/i.test(err?.message ?? '');
 }
 
-function mapGeminiError(err) {
+export function mapGeminiError(err) {
   const status = statusOf(err);
   if (status === 429 || status === 503) {
     return new ProviderError('rate_limited', 'Gemini is rate limited or overloaded', { cause: err, retryAfterSeconds: 30 });

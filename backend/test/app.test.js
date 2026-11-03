@@ -33,7 +33,7 @@ after(() => servers.forEach((s) => s.close()));
 test('health is public', async () => {
   const res = await fetch(`${base}/health`);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, provider: 'mock', model: 'rules-v1', configured: true });
+  assert.deepEqual(await res.json(), { ok: true, provider: 'mock', model: 'rules-v1', configured: true, speech: false });
 });
 
 test('rejects missing or wrong secret', async () => {

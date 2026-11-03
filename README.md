@@ -115,6 +115,11 @@ Two more endpoints return a spoken reply as `200 {"text": "..."}`, with the same
   answers a question about a screenshot (body limit 4 MB). The image is never logged or stored.
 - `POST /summarize` `{ "question": "what did I miss?", "messages": [{ "app": "WhatsApp", "chat": "Family", "sender": "Mom", "text": "Dinner at 8", "time": "19:02" }], "now": "...", "locale": "en-US" }`
   condenses up to 60 notifications into two or three sentences and flags anything urgent. Message text is never logged.
+- `POST /speak` `{ "text": "Calling King", "voice": "Despina" }` streams the spoken reply as raw 16-bit mono PCM
+  (`X-Sample-Rate: 24000`) from Gemini text-to-speech. On failure it returns the usual JSON error, and the
+  phone then uses its own voice. Set the models with `GEMINI_TTS_MODELS` and the default voice with
+  `GEMINI_TTS_VOICE`. The free tier allows about 3 voice replies per minute per model, so the backend
+  rotates through several models and skips any that are rate limited until their cooldown ends.
 
 Errors are `{"error": "...", "message": "<friendly, speakable text>"}`:
 
@@ -193,6 +198,13 @@ wake word fires while another app is open.
   it off or change its length in Settings.
 - If several contacts match ("King Kumar" and "King Singh"), Jarvis asks which one. Answer by name,
   say "the second one", or tap.
+- **Her face and voice.** Jarvis appears as an animated anime girl. She blinks, breathes, and lip-syncs to
+  the actual sound of her voice: the app measures the loudness of the audio playing every 20 ms and switches
+  between closed, half-open and open mouth pictures. Her voice is a Gemini AI voice, streamed so she starts
+  talking about 1.5 s after the reply is ready. Pick *Smooth*, *Soft*, *Youthful*, *Gentle* or *Phone voice*
+  under Settings → Voice (tap a voice to hear it), or switch back to the orb with *Animated character*.
+  The artwork is in `app/src/main/res/drawable-nodpi/avatar_*.png`. It is one base picture plus mouth and eye
+  patches cut from it, so her hair never flickers.
 - **Smart compose.** Ask Jarvis to write the message for you: "message Junior, say sorry I'm late, make it
   polite", "text Mom in Hindi that I'll reach by 8", "wish King happy birthday, sound excited", or
   "reply in Telugu that I'm coming". Jarvis reads the draft aloud and asks "Shall I send it?". Say yes or
@@ -220,6 +232,11 @@ wake word fires while another app is open.
   boot, and sharing contact names.
 
 ## Known limitations
+
+- **AI voice quota.** On Gemini's free tier the AI voice covers only a few replies a minute. After that, Jarvis
+  uses the phone's voice until the quota frees up (her lips still move). A paid Gemini key removes the limit.
+  Every spoken reply's text goes to your backend and Gemini to be voiced. Choose *Phone voice* to keep
+  replies on the phone.
 
 - **Wake word, then pause.** Vosk detects "Jarvis", then the platform recognizer starts after the chime.
   Words spoken before the chime are not captured. A single breath like "Jarvis call King" usually needs

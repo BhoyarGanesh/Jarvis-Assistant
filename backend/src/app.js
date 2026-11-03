@@ -4,6 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { ProviderError, isMissingSecret } from './providers/errors.js';
 import { SCREEN_PROMPT, SUMMARY_PROMPT, buildScreenMessage, buildSummaryMessage } from './prompt.js';
+import { SAMPLE_RATE, VOICE_PATTERN } from './speech.js';
 
 const InterpretBody = z.object({
   text: z.string().trim().min(1, 'text is required').max(500),
@@ -40,6 +41,11 @@ const SummaryBody = z.object({
   locale: z.string().max(20).optional(),
 });
 
+const SpeakBody = z.object({
+  text: z.string().trim().min(1, 'text is required').max(1000),
+  voice: z.string().regex(VOICE_PATTERN, 'unknown voice').optional(),
+});
+
 const MESSAGES = {
   unauthorized: 'The backend rejected my shared secret. Please check it in settings.',
   invalid_request: "I didn't receive anything to work with. Please try again.",
@@ -57,14 +63,21 @@ function safeEqual(a, b) {
 
 /**
  * @param {{ provider: import('./providers/index.js').LLMProvider, sharedSecret?: string,
+ *           speech?: import('./speech.js').GeminiSpeech | null,
  *           rateLimitPerMinute?: number, logger?: Pick<Console, 'info'|'error'> }} deps
  */
-export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, logger = console }) {
+export function createApp({ provider, sharedSecret, speech = null, rateLimitPerMinute = 30, logger = console }) {
   const app = express();
   app.disable('x-powered-by');
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, provider: provider.name, model: provider.model, configured: provider.configured });
+    res.json({
+      ok: true,
+      provider: provider.name,
+      model: provider.model,
+      configured: provider.configured,
+      speech: Boolean(speech?.configured),
+    });
   });
 
   const requireSecret = (req, res, next) => {
@@ -85,17 +98,27 @@ export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, log
     handler: (_req, res) => res.status(429).json({ error: 'rate_limited', message: MESSAGES.local_rate_limited }),
   });
 
+  /** Maps a provider failure to an HTTP status and a message the phone can read aloud. */
+  const sendError = (res, path, err) => {
+    const kind = err instanceof ProviderError ? err.kind : 'upstream';
+    logger.error(`[${path.slice(1)}] ${kind}: ${err.message}`);
+    if (kind === 'rate_limited' && err.retryAfterSeconds) res.set('Retry-After', String(err.retryAfterSeconds));
+    const status = { rate_limited: 429, not_configured: 503, upstream: 502 }[kind];
+    res.status(status).json({ error: kind, message: MESSAGES[kind] });
+  };
+
+  const badRequest = (res, error) =>
+    res.status(400).json({
+      error: 'invalid_request',
+      message: MESSAGES.invalid_request,
+      details: error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`),
+    });
+
   /** Validates the body with [schema], runs [work] and maps provider failures to friendly spoken errors. */
   const route = (path, bodyLimit, schema, work) =>
     app.post(path, requireSecret, limiter, express.json({ limit: bodyLimit }), async (req, res) => {
       const parsed = schema.safeParse(req.body ?? {});
-      if (!parsed.success) {
-        return res.status(400).json({
-          error: 'invalid_request',
-          message: MESSAGES.invalid_request,
-          details: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`),
-        });
-      }
+      if (!parsed.success) return badRequest(res, parsed.error);
       const started = Date.now();
       try {
         const { result, log } = await work(parsed.data);
@@ -103,11 +126,7 @@ export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, log
         logger.info(`[${path.slice(1)}] ${provider.name} ${latencyMs}ms ${log}`);
         res.json({ ...result, provider: provider.name, model: provider.model, latencyMs });
       } catch (err) {
-        const kind = err instanceof ProviderError ? err.kind : 'upstream';
-        logger.error(`[${path.slice(1)}] ${kind}: ${err.message}`);
-        if (kind === 'rate_limited' && err.retryAfterSeconds) res.set('Retry-After', String(err.retryAfterSeconds));
-        const status = { rate_limited: 429, not_configured: 503, upstream: 502 }[kind];
-        res.status(status).json({ error: kind, message: MESSAGES[kind] });
+        sendError(res, path, err);
       }
     });
 
@@ -133,6 +152,46 @@ export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, log
       text: buildSummaryMessage({ question, messages, now }),
     });
     return { result: { text }, log: `${messages.length} notifications` };
+  });
+
+  /**
+   * Streams the voice reply as raw 16-bit mono PCM (see X-Sample-Rate) so the phone can start
+   * playing within a second. Errors before the first chunk are JSON, and the phone then falls back
+   * to its own text-to-speech. Spoken text is never logged.
+   */
+  app.post('/speak', requireSecret, limiter, express.json({ limit: '16kb' }), async (req, res) => {
+    const parsed = SpeakBody.safeParse(req.body ?? {});
+    if (!parsed.success) return badRequest(res, parsed.error);
+    if (!speech?.configured) {
+      return sendError(res, '/speak', new ProviderError('not_configured', 'Speech needs GEMINI_API_KEY'));
+    }
+    const started = Date.now();
+    const audio = speech.stream(parsed.data);
+    // Stop generating if the phone hangs up mid-reply (the request's own 'close' fires once its body is read).
+    res.on('close', () => {
+      if (!res.writableFinished) audio.return(undefined).catch(() => {});
+    });
+
+    let first;
+    try {
+      first = await audio.next();
+    } catch (err) {
+      return sendError(res, '/speak', err);
+    }
+    res.status(200).set({
+      'Content-Type': `audio/L16; rate=${SAMPLE_RATE}; channels=1`,
+      'X-Sample-Rate': String(SAMPLE_RATE),
+      'Cache-Control': 'no-store',
+    });
+    logger.info(`[speak] first audio after ${Date.now() - started}ms (${parsed.data.text.length} chars)`);
+    try {
+      if (!first.done) res.write(first.value);
+      for await (const chunk of audio) res.write(chunk);
+    } catch (err) {
+      logger.error(`[speak] stream broke: ${err.message}`);
+    } finally {
+      res.end();
+    }
   });
 
   app.use((_req, res) => res.status(404).json({ error: 'not_found', message: 'Not found' }));

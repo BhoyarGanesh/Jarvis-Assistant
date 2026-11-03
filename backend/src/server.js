@@ -2,10 +2,13 @@ import { networkInterfaces } from 'node:os';
 import { config } from './config.js';
 import { createProvider } from './providers/index.js';
 import { createApp } from './app.js';
+import { GeminiSpeech } from './speech.js';
 import { isMissingSecret } from './providers/errors.js';
 
 const provider = createProvider(config);
-const app = createApp({ provider, sharedSecret: config.sharedSecret, rateLimitPerMinute: config.rateLimitPerMinute });
+// Voice replies always use Gemini TTS (whichever LLM provider interprets commands).
+const speech = new GeminiSpeech({ apiKey: config.geminiApiKey, models: config.ttsModels, voice: config.ttsVoice });
+const app = createApp({ provider, speech, sharedSecret: config.sharedSecret, rateLimitPerMinute: config.rateLimitPerMinute });
 
 app.listen(config.port, config.host, () => {
   console.log(`Jarvis backend listening on port ${config.port} (provider: ${provider.name}, model: ${provider.model})`);

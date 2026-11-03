@@ -10,6 +10,8 @@ import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.domain.AssistantUiState
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
+import com.jarvis.assistant.voice.Mouth
+import com.jarvis.assistant.voice.MouthLevel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,10 +25,12 @@ class HomeViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
     settingsRepository: SettingsRepository,
     wakeWordEngine: WakeWordEngine,
+    mouthLevel: MouthLevel,
 ) : ViewModel() {
 
     val uiState: StateFlow<AssistantUiState> = orchestrator.state
     val level: StateFlow<Float> = orchestrator.level
+    val mouth: StateFlow<Mouth> = mouthLevel.mouth
     val engineState: StateFlow<WakeWordEngineState> = wakeWordEngine.state
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings

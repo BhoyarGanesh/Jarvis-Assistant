@@ -25,7 +25,16 @@ data class AppSettings(
     val announceCalls: Boolean = false,
     /** Keep a screenshot in memory when the wake word fires, for "what's on my screen?". */
     val screenAwareness: Boolean = true,
+    /** Gemini voice for spoken replies, or [PHONE_VOICE] for the phone's own text-to-speech. */
+    val voiceName: String = DEFAULT_VOICE,
+    /** Show the animated character instead of the orb. */
+    val showAvatar: Boolean = true,
 ) {
+    companion object {
+        const val PHONE_VOICE = ""
+        const val DEFAULT_VOICE = "Despina"
+    }
+
     val isHindi: Boolean get() = languageTag.startsWith("hi")
     val backendConfigured: Boolean get() = backendUrl.isNotBlank() && sharedSecret.isNotBlank()
 }

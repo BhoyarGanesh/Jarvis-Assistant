@@ -8,6 +8,7 @@ import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
+import com.jarvis.assistant.voice.CloudSpeechOutput
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ sealed interface ConnectionTest {
 class SettingsViewModel @Inject constructor(
     private val repo: SettingsRepository,
     private val backend: BackendClient,
+    private val speech: CloudSpeechOutput,
     wakeWordEngine: WakeWordEngine,
 ) : ViewModel() {
 
@@ -58,6 +60,16 @@ class SettingsViewModel @Inject constructor(
     fun setShareContacts(v: Boolean) = save { setShareContactNames(v) }
     fun setAnnounceCalls(v: Boolean) = save { setAnnounceCalls(v) }
     fun setScreenAwareness(v: Boolean) = save { setScreenAwareness(v) }
+    /** Picks a voice and plays a short sample in it. */
+    fun chooseVoice(name: String) {
+        viewModelScope.launch {
+            speech.stop()
+            repo.setVoiceName(name)
+            val hindi = repo.current().isHindi
+            speech.speak(if (hindi) "नमस्ते, मैं जार्विस हूँ। मेरी आवाज़ ऐसी है।" else "Hi, I'm Jarvis. This is how I sound.", repo.current().languageTag)
+        }
+    }
+    fun setShowAvatar(v: Boolean) = save { setShowAvatar(v) }
     fun completeOnboarding() = save { setOnboardingComplete(true) }
 
     fun testConnection(url: String) {

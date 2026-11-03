@@ -35,9 +35,9 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private data class OrbPalette(val primary: Color, val secondary: Color, val deep: Color)
+internal data class OrbPalette(val primary: Color, val secondary: Color, val deep: Color)
 
-private fun paletteFor(phase: AssistantPhase) = when (phase) {
+internal fun paletteFor(phase: AssistantPhase) = when (phase) {
     AssistantPhase.IDLE -> OrbPalette(JarvisColors.Violet, JarvisColors.Cyan, Color(0xFF241063))
     AssistantPhase.LISTENING -> OrbPalette(JarvisColors.Cyan, JarvisColors.Violet, Color(0xFF0B3A66))
     AssistantPhase.THINKING -> OrbPalette(JarvisColors.Magenta, JarvisColors.Violet, Color(0xFF4A0F5E))

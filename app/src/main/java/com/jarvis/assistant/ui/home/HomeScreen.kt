@@ -69,6 +69,7 @@ import com.jarvis.assistant.ui.components.AuroraBackground
 import com.jarvis.assistant.ui.components.CountdownCard
 import com.jarvis.assistant.ui.components.DisambiguationCard
 import com.jarvis.assistant.ui.components.GlassCard
+import com.jarvis.assistant.ui.components.JarvisAvatar
 import com.jarvis.assistant.ui.components.JarvisOrb
 import com.jarvis.assistant.ui.components.LiveTranscript
 import com.jarvis.assistant.ui.theme.JarvisColors
@@ -82,6 +83,7 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val level by viewModel.level.collectAsStateWithLifecycle()
+    val mouth by viewModel.mouth.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val engine by viewModel.engineState.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
@@ -160,17 +162,18 @@ fun HomeScreen(
 
             Spacer(Modifier.weight(0.6f))
 
-            JarvisOrb(
-                phase = state.phase,
-                level = level,
-                modifier = Modifier
-                    .size(280.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = talk,
-                    ),
-            )
+            val faceModifier = Modifier
+                .size(280.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = talk,
+                )
+            if (settings.showAvatar) {
+                JarvisAvatar(phase = state.phase, listeningLevel = level, mouth = mouth, modifier = faceModifier)
+            } else {
+                JarvisOrb(phase = state.phase, level = level, modifier = faceModifier)
+            }
 
             PhaseLabel(state.phase, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
 
@@ -308,7 +311,7 @@ private fun Banner(title: String, body: String, onClick: (() -> Unit)?) {
 @Composable
 private fun PhaseLabel(phase: AssistantPhase, wakeWordListening: Boolean) {
     val label = when (phase) {
-        AssistantPhase.IDLE -> if (wakeWordListening) "Say “Jarvis” or tap the orb" else "Tap the orb to talk"
+        AssistantPhase.IDLE -> if (wakeWordListening) "Say “Jarvis” or tap to talk" else "Tap to talk"
         AssistantPhase.LISTENING -> "Listening…"
         AssistantPhase.THINKING -> "Thinking…"
         AssistantPhase.SPEAKING -> "Speaking"
