@@ -162,8 +162,9 @@ fun HomeScreen(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.55f),
-                            0.14f to Color.Transparent,
+                            0f to Color.Black.copy(alpha = 0.75f),
+                            0.12f to Color.Black.copy(alpha = 0.45f),
+                            0.2f to Color.Transparent,
                             0.5f to Color.Transparent,
                             0.78f to Color.Black.copy(alpha = 0.55f),
                             1f to Color.Black.copy(alpha = 0.85f),
