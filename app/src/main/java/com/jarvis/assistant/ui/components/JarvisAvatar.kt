@@ -11,11 +11,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,44 +18,41 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import com.jarvis.assistant.R
 import com.jarvis.assistant.domain.AssistantPhase
 import com.jarvis.assistant.voice.Mouth
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** Where the mouth and eye patches sit on the 510 px base picture. */
-private const val BASE_SIZE = 510f
-private val MOUTH_AT = IntOffset(246, 251)
-private val EYES_AT = IntOffset(188, 170)
+/** Where the mouth and eye patches sit on the 1536 x 2660 base picture. */
+private val MOUTH_AT = IntOffset(690, 950)
+private val EYES_AT = IntOffset(448, 684)
 
 private enum class MouthShape { CLOSED, HALF, OPEN }
 
 /**
- * The anime assistant. Her lips follow the loudness of the voice that is playing ([mouth]),
- * she blinks every few seconds and breathes gently; a glowing ring shows the phase
- * (cyan listening and pulsing with your voice, magenta thinking, violet speaking, red error).
+ * The anime assistant, filling the whole screen. Her lips follow the loudness of the voice that is
+ * playing ([mouth]), she blinks every few seconds and breathes gently, and a coloured glow rises from
+ * the edges to show the phase (cyan listening and pulsing with your voice, magenta thinking, violet
+ * speaking, red error). The picture covers the screen with her face kept in view.
  */
 @Composable
 fun JarvisAvatar(
@@ -75,64 +67,97 @@ fun JarvisAvatar(
     val eyesClosed = ImageBitmap.imageResource(R.drawable.avatar_eyes_closed)
 
     val palette = paletteFor(phase)
-    val primary by animateColorAsState(palette.primary, tween(500), label = "avatar-primary")
-    val secondary by animateColorAsState(palette.secondary, tween(500), label = "avatar-secondary")
+    val glowColor by animateColorAsState(palette.primary, tween(600), label = "avatar-glow")
 
     val loop = rememberInfiniteTransition(label = "avatar")
-    val breath by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(3_600, easing = LinearEasing)), label = "breath")
-    val spin by loop.animateFloat(0f, 360f, infiniteRepeatable(tween(2_400, easing = LinearEasing)), label = "spin")
-    val glow by loop.animateFloat(0.55f, 1f, infiniteRepeatable(tween(1_400), RepeatMode.Reverse), label = "glow")
-    val ring by animateFloatAsState(
+    val breath by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(4_000, easing = LinearEasing)), label = "breath")
+    val pulse by loop.animateFloat(0.5f, 1f, infiniteRepeatable(tween(1_200), RepeatMode.Reverse), label = "pulse")
+    val voice by animateFloatAsState(
         targetValue = if (phase == AssistantPhase.LISTENING) listeningLevel.coerceIn(0f, 1f) else 0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "ring",
+        label = "voice",
+    )
+    val glowStrength by animateFloatAsState(
+        targetValue = when (phase) {
+            AssistantPhase.IDLE -> 0.12f
+            AssistantPhase.LISTENING -> 0.35f
+            AssistantPhase.THINKING -> 0.30f
+            AssistantPhase.SPEAKING -> 0.25f
+            AssistantPhase.ERROR -> 0.45f
+        },
+        animationSpec = tween(600),
+        label = "glow-strength",
     )
 
     val shape = rememberMouthShape(mouth)
     val blinking = rememberBlink()
 
-    Box(
+    Canvas(
         modifier
-            .aspectRatio(1f)
-            .semantics { contentDescription = "Jarvis" },
-        contentAlignment = Alignment.Center,
+            .semantics { contentDescription = "Jarvis" }
+            .graphicsLayer {
+                // Breathing: a slow, slight swell from the shoulders.
+                val b = sin(breath * 2 * Math.PI).toFloat()
+                transformOrigin = TransformOrigin(0.5f, 1f)
+                scaleX = 1f + 0.006f * b
+                scaleY = 1f + 0.006f * b
+            },
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawGlow(phase, primary, secondary, glow, ring, spin)
+        // Cover the screen; centre horizontally and pin the top so her face stays in view.
+        val scale = max(size.width / base.width, size.height / base.height)
+        val left = (size.width - base.width * scale) / 2
+        fun place(image: ImageBitmap, x: Int, y: Int) = drawImage(
+            image = image,
+            dstOffset = IntOffset((left + x * scale).roundToInt(), (y * scale).roundToInt()),
+            dstSize = IntSize((image.width * scale).roundToInt(), (image.height * scale).roundToInt()),
+            filterQuality = FilterQuality.High,
+        )
+        place(base, 0, 0)
+        when (shape) {
+            MouthShape.CLOSED -> Unit
+            MouthShape.HALF -> place(mouthHalf, MOUTH_AT.x, MOUTH_AT.y)
+            MouthShape.OPEN -> place(mouthOpen, MOUTH_AT.x, MOUTH_AT.y)
         }
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .clip(CircleShape)
-                .graphicsLayer {
-                    // Breathing: a slow, slight rise and swell.
-                    val b = sin(breath * 2 * Math.PI).toFloat()
-                    scaleX = 1.04f + 0.008f * b
-                    scaleY = 1.04f + 0.008f * b
-                    translationY = -3f * b
-                },
-        ) {
-            val scale = size.width / BASE_SIZE
-            fun patch(image: ImageBitmap, at: IntOffset) = drawImage(
-                image = image,
-                dstOffset = IntOffset((at.x * scale).roundToInt(), (at.y * scale).roundToInt()),
-                dstSize = IntSize((image.width * scale).roundToInt(), (image.height * scale).roundToInt()),
-                filterQuality = FilterQuality.High,
-            )
-            drawImage(
-                image = base,
-                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
-                filterQuality = FilterQuality.High,
-            )
-            when (shape) {
-                MouthShape.CLOSED -> Unit
-                MouthShape.HALF -> patch(mouthHalf, MOUTH_AT)
-                MouthShape.OPEN -> patch(mouthOpen, MOUTH_AT)
-            }
-            if (blinking) patch(eyesClosed, EYES_AT)
+        if (blinking) place(eyesClosed, EYES_AT.x, EYES_AT.y)
+
+        val strength = when (phase) {
+            AssistantPhase.LISTENING -> glowStrength + 0.35f * voice
+            AssistantPhase.THINKING, AssistantPhase.ERROR -> glowStrength * pulse
+            else -> glowStrength * (0.8f + 0.2f * pulse)
         }
+        drawEdgeGlow(glowColor, strength.coerceIn(0f, 0.8f))
     }
+}
+
+/** Light rising from the bottom and sides, tinted by the phase. */
+private fun DrawScope.drawEdgeGlow(color: Color, strength: Float) {
+    drawRect(
+        Brush.verticalGradient(
+            0f to Color.Transparent,
+            0.55f to Color.Transparent,
+            1f to color.copy(alpha = strength),
+        ),
+    )
+    val side = size.width * 0.28f
+    drawRect(
+        Brush.horizontalGradient(
+            0f to color.copy(alpha = strength * 0.6f),
+            1f to Color.Transparent,
+            startX = 0f,
+            endX = side,
+        ),
+        size = size.copy(width = side),
+    )
+    drawRect(
+        Brush.horizontalGradient(
+            0f to Color.Transparent,
+            1f to color.copy(alpha = strength * 0.6f),
+            startX = size.width - side,
+            endX = size.width,
+        ),
+        topLeft = Offset(size.width - side, 0f),
+        size = size.copy(width = side),
+    )
 }
 
 /** Maps voice loudness (or a talking rhythm for the phone voice) to one of the three mouth pictures. */
@@ -150,8 +175,7 @@ private fun rememberMouthShape(mouth: Mouth): MouthShape {
                 val t = (now - start) / 1000.0
                 val syllable = abs(sin(t * 2 * Math.PI * 4.2))
                 val phrase = 0.55 + 0.45 * sin(t * 2 * Math.PI * 0.7)
-                val level = (syllable * phrase).toFloat()
-                talkingShape = shapeFor(level, talkingShape)
+                talkingShape = shapeFor((syllable * phrase).toFloat(), talkingShape)
             }
         }
     }
@@ -199,45 +223,4 @@ private fun rememberBlink(): Boolean {
         }
     }
     return closed
-}
-
-private fun DrawScope.drawGlow(
-    phase: AssistantPhase,
-    primary: Color,
-    secondary: Color,
-    glow: Float,
-    ring: Float,
-    spin: Float,
-) {
-    val radius = size.minDimension / 2 - 10.dp.toPx()
-    // Soft halo behind the portrait.
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(primary.copy(alpha = 0.45f * glow + 0.25f * ring), Color.Transparent),
-            center = center,
-            radius = radius * (1.18f + 0.12f * ring),
-        ),
-        radius = radius * (1.18f + 0.12f * ring),
-    )
-    val stroke = Stroke(width = (3.dp.toPx() + 5.dp.toPx() * ring))
-    if (phase == AssistantPhase.THINKING) {
-        rotate(spin) {
-            drawCircle(
-                brush = Brush.sweepGradient(listOf(primary, secondary, Color.Transparent, primary), center),
-                radius = radius,
-                style = stroke,
-            )
-        }
-    } else {
-        drawCircle(
-            brush = Brush.linearGradient(
-                listOf(primary, secondary),
-                start = Offset(0f, 0f),
-                end = Offset(size.width, size.height),
-            ),
-            radius = radius,
-            alpha = if (phase == AssistantPhase.IDLE) 0.55f + 0.25f * glow else 0.9f,
-            style = stroke,
-        )
-    }
 }

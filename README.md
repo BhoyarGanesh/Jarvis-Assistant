@@ -198,13 +198,17 @@ wake word fires while another app is open.
   it off or change its length in Settings.
 - If several contacts match ("King Kumar" and "King Singh"), Jarvis asks which one. Answer by name,
   say "the second one", or tap.
-- **Her face and voice.** Jarvis appears as an animated anime girl. She blinks, breathes, and lip-syncs to
+- **Her face and voice.** Jarvis appears as an animated anime girl filling the whole screen, with live neon
+  rain in front of her. The rain slows down while she listens and has an occasional soft lightning flash. Turn it
+  off under Settings → *Rain effect*. She blinks, breathes, and lip-syncs to
   the actual sound of her voice: the app measures the loudness of the audio playing every 20 ms and switches
   between closed, half-open and open mouth pictures. Her voice is a Gemini AI voice, streamed so she starts
   talking about 1.5 s after the reply is ready. Pick *Smooth*, *Soft*, *Youthful*, *Gentle* or *Phone voice*
   under Settings → Voice (tap a voice to hear it), or switch back to the orb with *Animated character*.
-  The artwork is in `app/src/main/res/drawable-nodpi/avatar_*.png`. It is one base picture plus mouth and eye
-  patches cut from it, so her hair never flickers.
+  The artwork is in `app/src/main/res/drawable-nodpi/avatar_*`. It is one 1536×2660 base picture plus mouth
+  and eye patches cut from pixel-aligned edits of it, so her hair and outline never shimmer. To change her look,
+  make the four pictures by *editing* one image (eyes closed, mouth half open, mouth open), not by generating
+  four separate images.
 - **Smart compose.** Ask Jarvis to write the message for you: "message Junior, say sorry I'm late, make it
   polite", "text Mom in Hindi that I'll reach by 8", "wish King happy birthday, sound excited", or
   "reply in Telugu that I'm coming". Jarvis reads the draft aloud and asks "Shall I send it?". Say yes or

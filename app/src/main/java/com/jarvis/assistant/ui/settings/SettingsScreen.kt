@@ -173,10 +173,19 @@ fun SettingsScreen(
                 Divider()
                 SettingSwitch(
                     "Animated character",
-                    "Show Jarvis as an animated girl who lip-syncs while she talks, instead of the orb.",
+                    "Show Jarvis full screen as an animated girl who lip-syncs while she talks, instead of the orb.",
                     settings.showAvatar,
                     viewModel::setShowAvatar,
                 )
+                if (settings.showAvatar) {
+                    Divider()
+                    SettingSwitch(
+                        "Rain effect",
+                        "Live neon rain in front of her. It only animates while Jarvis is open on screen.",
+                        settings.rainEffect,
+                        viewModel::setRainEffect,
+                    )
+                }
                 Divider()
                 Text("Language", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

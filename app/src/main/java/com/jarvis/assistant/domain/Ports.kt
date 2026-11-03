@@ -29,6 +29,8 @@ data class AppSettings(
     val voiceName: String = DEFAULT_VOICE,
     /** Show the animated character instead of the orb. */
     val showAvatar: Boolean = true,
+    /** Live rain over the animated character. */
+    val rainEffect: Boolean = true,
 ) {
     companion object {
         const val PHONE_VOICE = ""

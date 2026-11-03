@@ -71,6 +71,7 @@ import com.jarvis.assistant.ui.components.DisambiguationCard
 import com.jarvis.assistant.ui.components.GlassCard
 import com.jarvis.assistant.ui.components.JarvisAvatar
 import com.jarvis.assistant.ui.components.JarvisOrb
+import com.jarvis.assistant.ui.components.RainEffect
 import com.jarvis.assistant.ui.components.LiveTranscript
 import com.jarvis.assistant.ui.theme.JarvisColors
 import kotlinx.coroutines.delay
@@ -140,6 +141,36 @@ fun HomeScreen(
     )
 
     AuroraBackground(accent = accent) {
+        if (settings.showAvatar) {
+            // Full-screen character behind everything; tapping her starts listening.
+            JarvisAvatar(
+                phase = state.phase,
+                listeningLevel = level,
+                mouth = mouth,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = talk,
+                    ),
+            )
+            if (settings.rainEffect) RainEffect(state.phase, Modifier.fillMaxSize())
+            // Darken the top and bottom so the status bar, text and buttons stay readable over the art.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.55f),
+                            0.14f to Color.Transparent,
+                            0.5f to Color.Transparent,
+                            0.78f to Color.Black.copy(alpha = 0.55f),
+                            1f to Color.Black.copy(alpha = 0.85f),
+                        ),
+                    ),
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -160,19 +191,22 @@ fun HomeScreen(
                 Banner("Wake word unavailable", (engine as WakeWordEngineState.Unavailable).reason, null)
             }
 
-            Spacer(Modifier.weight(0.6f))
-
-            val faceModifier = Modifier
-                .size(280.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = talk,
-                )
             if (settings.showAvatar) {
-                JarvisAvatar(phase = state.phase, listeningLevel = level, mouth = mouth, modifier = faceModifier)
+                // She fills the screen; the conversation sits below her face, like subtitles.
+                Spacer(Modifier.weight(1f))
             } else {
-                JarvisOrb(phase = state.phase, level = level, modifier = faceModifier)
+                Spacer(Modifier.weight(0.6f))
+                JarvisOrb(
+                    phase = state.phase,
+                    level = level,
+                    modifier = Modifier
+                        .size(280.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = talk,
+                        ),
+                )
             }
 
             PhaseLabel(state.phase, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
@@ -200,7 +234,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(Modifier.weight(1f))
+            if (!settings.showAvatar) Spacer(Modifier.weight(1f))
 
             ActionCardStack(state.cards, Modifier.fillMaxWidth())
 

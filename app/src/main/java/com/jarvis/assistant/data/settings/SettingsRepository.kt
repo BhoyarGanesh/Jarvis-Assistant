@@ -44,6 +44,7 @@ class SettingsRepository @Inject constructor(
         val screenAwareness = booleanPreferencesKey("screen_awareness")
         val voiceName = stringPreferencesKey("voice_name")
         val showAvatar = booleanPreferencesKey("show_avatar")
+        val rainEffect = booleanPreferencesKey("rain_effect")
     }
 
     override val settings: Flow<AppSettings> = store.data.map { p ->
@@ -65,6 +66,7 @@ class SettingsRepository @Inject constructor(
             screenAwareness = p[Keys.screenAwareness] ?: d.screenAwareness,
             voiceName = p[Keys.voiceName] ?: d.voiceName,
             showAvatar = p[Keys.showAvatar] ?: d.showAvatar,
+            rainEffect = p[Keys.rainEffect] ?: d.rainEffect,
         )
     }
 
@@ -86,4 +88,5 @@ class SettingsRepository @Inject constructor(
     suspend fun setScreenAwareness(value: Boolean) = store.edit { it[Keys.screenAwareness] = value }
     suspend fun setVoiceName(value: String) = store.edit { it[Keys.voiceName] = value }
     suspend fun setShowAvatar(value: Boolean) = store.edit { it[Keys.showAvatar] = value }
+    suspend fun setRainEffect(value: Boolean) = store.edit { it[Keys.rainEffect] = value }
 }
