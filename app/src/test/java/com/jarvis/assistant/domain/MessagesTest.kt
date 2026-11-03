@@ -41,6 +41,11 @@ class MessagesTest {
         assertTrue(MessageSelector.select(all, "", "zebra").isEmpty())
     }
 
+    @Test fun filtersByGroupName() {
+        val family = group.copy(key = "f", conversation = "Family", transcript = listOf("Ravi: dinner at 8", "Mom: bring milk"))
+        assertEquals(listOf(family), MessageSelector.select(listOf(king, mom, family), "", "family"))
+    }
+
     @Test fun limitsCount() {
         assertEquals(2, MessageSelector.select(all, "", "", limit = 2).size)
     }

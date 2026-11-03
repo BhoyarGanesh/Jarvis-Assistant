@@ -106,7 +106,15 @@ Gemini and Claude clients so no key is needed: `npm test`.
 
 Tools: `call_contact(name)`, `send_whatsapp(contact_name, message)`, `send_sms(contact_name, message)`,
 `set_alarm(hour, minute, label)`, `set_timer(seconds, label)`, `open_app(app_name)`, `web_search(query)`,
-`play_music(query)`, `answer(text)`.
+`play_music(query)`, `read_notifications(app_name, contact_name)`, `reply_message(contact_name, message)`,
+`screen_question(question)`, `summarize_messages(app_name, contact_name, question)`, `find_phone()`, `answer(text)`.
+
+Two more endpoints return a spoken reply as `200 {"text": "..."}`, with the same secret and errors:
+
+- `POST /screen` `{ "question": "is this a scam?", "image": "<base64 JPEG>", "mimeType": "image/jpeg", "locale": "en-US" }`
+  answers a question about a screenshot (body limit 4 MB). The image is never logged or stored.
+- `POST /summarize` `{ "question": "what did I miss?", "messages": [{ "app": "WhatsApp", "chat": "Family", "sender": "Mom", "text": "Dinner at 8", "time": "19:02" }], "now": "...", "locale": "en-US" }`
+  condenses up to 60 notifications into two or three sentences and flags anything urgent. Message text is never logged.
 
 Errors are `{"error": "...", "message": "<friendly, speakable text>"}`:
 
@@ -156,10 +164,12 @@ The onboarding walks through each step, and each one can be skipped and enabled 
 2. **Contacts, Phone, SMS**: for "call King" and "text Mom". If you deny one, Jarvis says what is
    missing instead of failing silently.
 3. **Notifications** (Android 13+): for the persistent "Listening for Jarvis" notification.
-4. **WhatsApp auto-send (Accessibility)**: Settings → Accessibility → *Jarvis WhatsApp auto-send* → On.
+4. **WhatsApp auto-send & screen reading (Accessibility)**: Settings → Accessibility → *Jarvis WhatsApp
+   auto-send & screen reading* → On.
    On Android 13+ sideloaded apps get *Restricted setting*. Fix it with App info → ⋮ → **Allow restricted
    settings**, then enable the service. Without it, Jarvis still opens the chat with your text typed
-   in, and asks you to tap Send.
+   in, and asks you to tap Send, but can't answer questions about your screen. If you enabled it before
+   this update and screen questions fail, turn the service off and on once.
 5. **Battery optimization**: allow Jarvis to run in the background. On Xiaomi, Samsung, OnePlus, Oppo,
    Vivo and Huawei also enable Autostart or "never sleeping". The exact paths are under *Settings →
    If Jarvis stops listening* and on https://dontkillmyapp.com.
@@ -183,9 +193,25 @@ wake word fires while another app is open.
   it off or change its length in Settings.
 - If several contacts match ("King Kumar" and "King Singh"), Jarvis asks which one. Answer by name,
   say "the second one", or tap.
+- **"What's on my screen?"** In any app, say "Jarvis", then "explain this", "translate this", "what should
+  I reply to this?" or "is this offer a scam?". The screenshot is taken the moment the wake word fires
+  (before Jarvis's own screen appears), kept in memory for up to a minute, and sent to the backend only
+  if your question is about the screen. It needs the accessibility service and Android 11+, and only
+  works from the wake word, since tapping the orb or tile puts Jarvis itself on screen. Apps that block
+  screenshots (banking, password managers) can't be seen. Turn it off under Settings → *Screen awareness*.
+- **Caller announcements.** Turn on Settings → *Announce callers* (asks for Phone and Call log permissions).
+  When the phone rings, Jarvis mutes the ringtone, says "King is calling", and listens for "answer",
+  "reject", or "tell him I'll call back in 10 minutes", which declines the call and texts that message by SMS.
+  If it doesn't understand you after two tries, it un-mutes and lets the phone ring.
+- **"What did I miss?"** "Anything important today?", "summarise my Family group" or "catch me up on WhatsApp"
+  sends the matching notifications to the backend and reads back a two-or-three sentence summary with
+  anything urgent first. It needs notification access. Message text leaves the phone only when you ask.
+- **"Where are you?"** Jarvis says "I'm here!" and rings at full alarm volume, even on silent, for
+  45 seconds. Stop it from the notification or by touching the Jarvis screen.
 - Every action is logged in **History** (clock icon). You can clear it there.
 - Settings has: wake word on/off, sensitivity and re-trigger delay, backend URL and secret, spoken replies,
-  countdown, language (English, English (India), Hindi), start on boot, and sharing contact names.
+  screen awareness, caller announcements, countdown, language (English, English (India), Hindi), start on
+  boot, and sharing contact names.
 
 ## Known limitations
 
@@ -208,6 +234,15 @@ wake word fires while another app is open.
 - **WhatsApp auto-send.** It depends on WhatsApp's UI: it matches the view id `send`, then the
   content description "Send" and some translations, with a 10-second timeout. A WhatsApp redesign can
   break it; Jarvis then reports that you need to tap Send.
+- **Caller announcements.** These need Jarvis listening in the background (the wake word service), because
+  Android blocks the microphone for background apps otherwise. Answering and declining use
+  `TelecomManager.acceptRingingCall()` / `endCall()`, which are deprecated but still the only option for an
+  app that isn't the default dialer. Declining needs Android 9+. Some phones block the microphone while
+  ringing; then Jarvis can't hear you and lets the call ring. Without Call log permission Jarvis can't see
+  the caller's number, so it says "Someone is calling" and can't text them. Play Store policy restricts
+  Call log access, which is fine for this sideloaded app but would need a different approach for a store release.
+- **Summaries see only what's in the notification shade.** Each messaging app decides how many recent
+  messages its notification holds (Jarvis keeps up to 25 per chat), and opening a chat clears them.
 - **SMS.** Sends directly with the SMS permission, otherwise opens your messaging app prefilled.
   Delivery reports are not tracked.
 - **Free-tier limits.** Gemini's free tier has per-minute and per-day limits. When they are hit, Jarvis

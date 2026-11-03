@@ -1,5 +1,6 @@
 package com.jarvis.assistant.domain
 
+import com.jarvis.assistant.domain.calls.IncomingCall
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.CompletableDeferred
@@ -47,6 +48,8 @@ class AssistantOrchestratorTest {
         var lastContactNames: List<String>? = null
         var pauses = 0
         var resumes = 0
+        val callActions = mutableListOf<String>()
+        var callControlWorks = true
         private val speechQueue = ArrayDeque(speech)
 
         val orchestrator = AssistantOrchestrator(
@@ -96,6 +99,17 @@ class AssistantOrchestratorTest {
                 override suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome {
                     executed += command to contact
                     return ActionOutcome(ActionStatus.SUCCESS, if (contact != null) phrases.calling(contact.displayName) else "Done")
+                }
+            },
+            calls = object : CallControl {
+                override fun answer() = callControlWorks.also { callActions += "answer" }
+                override fun reject() = callControlWorks.also { callActions += "reject" }
+                override fun silenceRinger() {
+                    callActions += "silence"
+                }
+
+                override fun restoreRinger() {
+                    callActions += "restore"
                 }
             },
             actionLog = object : ActionLog {
@@ -329,6 +343,112 @@ class AssistantOrchestratorTest {
         assertEquals("on my way", confirmation?.subtitle)
         advanceUntilIdle()
         assertEquals(AssistantCommand.ReplyMessage("", "on my way") to null, h.executed.single())
+    }
+
+    @Test fun newCommandsRunWithoutCountdownOrContactLookup() = runTest {
+        for (command in listOf(
+            AssistantCommand.ScreenQuestion("is this a scam?"),
+            AssistantCommand.SummarizeMessages("", "Family", "summarise my family group"),
+            AssistantCommand.FindPhone,
+        )) {
+            val h = harness(command = command, settings = baseSettings.copy(confirmationCountdownEnabled = true))
+            h.orchestrator.trigger()
+            advanceUntilIdle()
+            assertEquals(command to null, h.executed.single())
+            assertEquals(command.toolName, h.logged.single().tool)
+        }
+    }
+
+    private val kingCall = IncomingCall("King", "+911111111111")
+
+    @Test fun callAnnouncedThenAnswered() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.Text("answer it") }))
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+
+        assertEquals(listOf("King is calling. Answer, reject, or tell me what to text them?"), h.spoken)
+        assertEquals(listOf("silence", "answer", "restore"), h.callActions)
+        assertTrue(h.executed.isEmpty())
+        assertEquals(AssistantOrchestrator.CALL_TOOL, h.logged.single().tool)
+        assertEquals(1, h.pauses)
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun callRejected() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.Text("reject") }))
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+        assertEquals(listOf("silence", "reject", "restore"), h.callActions)
+        assertEquals("Declined.", h.spoken.last())
+    }
+
+    @Test fun callDeclinedWithTextMessage() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.Text("tell him I'll call back in 10 minutes") }))
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+
+        assertEquals(listOf("silence", "reject", "restore"), h.callActions)
+        val (command, contact) = h.executed.single()
+        assertEquals(AssistantCommand.SendSms("King", "I'll call back in 10 minutes"), command)
+        assertEquals("+911111111111", contact?.phoneNumber)
+        assertTrue(h.spoken.last().startsWith("Declined."))
+    }
+
+    @Test fun callFromUnknownNumberCannotBeTexted() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.Text("text them I'm driving") }))
+        h.orchestrator.announceCall(IncomingCall(null, null))
+        advanceUntilIdle()
+
+        assertTrue(h.spoken.first().startsWith("Someone is calling"))
+        assertTrue(h.executed.isEmpty())
+        assertEquals(ActionStatus.FAILED, h.logged.single().status)
+    }
+
+    @Test fun callAsksAgainOnceThenLetsItRing() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.NoMatch }, { SpeechResult.Text("hmm what") }))
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+
+        assertEquals(3, h.spoken.size)
+        assertEquals("OK, I'll let it ring.", h.spoken.last())
+        assertEquals(listOf("silence", "restore"), h.callActions)
+    }
+
+    @Test fun callEndingStopsTheAnnouncement() = runTest {
+        val reply = CompletableDeferred<SpeechResult>()
+        val h = harness(speech = listOf({ reply.await() }))
+        h.orchestrator.announceCall(kingCall)
+        runCurrent()
+        assertTrue(h.orchestrator.isBusy)
+
+        h.orchestrator.callStopped()
+        advanceUntilIdle()
+        assertFalse(h.orchestrator.isBusy)
+        assertEquals(listOf("silence", "restore"), h.callActions)
+        assertTrue(h.logged.isEmpty())
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun callTakesOverARunningInteraction() = runTest {
+        val first = CompletableDeferred<SpeechResult>()
+        val h = harness(speech = listOf({ first.await() }, { SpeechResult.Text("answer") }))
+        h.orchestrator.trigger()
+        runCurrent()
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+
+        assertEquals(0, h.interpretCalls)
+        assertEquals(listOf("silence", "answer", "restore"), h.callActions)
+        assertEquals(2, h.pauses)
+        assertEquals(2, h.resumes)
+    }
+
+    @Test fun duplicateRingingBroadcastIsIgnored() = runTest {
+        val h = harness(speech = listOf({ SpeechResult.Text("reject") }))
+        h.orchestrator.announceCall(kingCall)
+        h.orchestrator.announceCall(kingCall)
+        advanceUntilIdle()
+        assertEquals(1, h.spoken.count { "is calling" in it })
     }
 
     @Test fun triggerIgnoredWhileBusy() = runTest {

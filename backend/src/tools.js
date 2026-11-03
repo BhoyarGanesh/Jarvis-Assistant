@@ -109,6 +109,35 @@ export const TOOLS = [
     }),
   },
   {
+    name: 'screen_question',
+    description:
+      'Look at what is on the phone screen right now and answer about it: "what\'s on my screen?", "explain this", "translate this", "summarise this page", "is this offer a scam?", "what should I reply to this?". Use this whenever the user says "this" or "my screen" about something they are looking at.',
+    parameters: { question: str('The user\'s question about the screen, in their words', 300) },
+    zod: z.object({ question: z.string().trim().min(1).max(300) }),
+  },
+  {
+    name: 'summarize_messages',
+    description:
+      'Summarise the user\'s unread messages and flag anything urgent: "what did I miss?", "anything important today?", "summarise my Family group", "catch me up on WhatsApp". Filter by app and/or chat/sender name when the user names one; otherwise empty strings. Use read_notifications instead when the user wants messages read out word for word.',
+    parameters: {
+      app_name: str('App to filter by, e.g. "WhatsApp", or empty string', 50),
+      contact_name: str('Chat, group or sender to filter by, e.g. "Family", or empty string', 100),
+      question: str('The user\'s request in their words', 300),
+    },
+    zod: z.object({
+      app_name: z.string().trim().max(50).default(''),
+      contact_name: z.string().trim().max(100).default(''),
+      question: z.string().trim().max(300).default(''),
+    }),
+  },
+  {
+    name: 'find_phone',
+    description:
+      'Ring the phone loudly, even on silent, so the user can find it: "where are you?", "find my phone", "ring my phone", "I lost my phone".',
+    parameters: {},
+    zod: z.object({}),
+  },
+  {
     name: 'answer',
     description:
       'Reply with speech only. Use for general questions, small talk, and for ambiguous or unsupported requests (ask a short clarifying question). Keep it to one or two short spoken sentences.',

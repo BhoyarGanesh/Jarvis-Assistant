@@ -56,6 +56,8 @@ class SettingsViewModel @Inject constructor(
     fun setLanguage(tag: String) = save { setLanguage(tag) }
     fun setStartOnBoot(v: Boolean) = save { setStartOnBoot(v) }
     fun setShareContacts(v: Boolean) = save { setShareContactNames(v) }
+    fun setAnnounceCalls(v: Boolean) = save { setAnnounceCalls(v) }
+    fun setScreenAwareness(v: Boolean) = save { setScreenAwareness(v) }
     fun completeOnboarding() = save { setOnboardingComplete(true) }
 
     fun testConnection(url: String) {

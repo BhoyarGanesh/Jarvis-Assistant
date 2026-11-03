@@ -38,6 +38,18 @@ export class MockProvider {
     if ((m = t.match(/^read (?:my )?(\w+ )?(?:messages|notifications)$/i))) {
       return normalizeToolCall('read_notifications', { app_name: m[1] ? titleCase(m[1].trim()) : '', contact_name: '' });
     }
+    if (/^(?:where are you|find my phone|ring my phone)$/i.test(t)) {
+      return normalizeToolCall('find_phone', {});
+    }
+    if (/^(?:what'?s on my screen|explain this|translate this|is this (?:a |offer a )?scam)$/i.test(t)) {
+      return normalizeToolCall('screen_question', { question: t });
+    }
+    if (/^(?:what did i miss|anything important(?: today)?)$/i.test(t)) {
+      return normalizeToolCall('summarize_messages', { app_name: '', contact_name: '', question: t });
+    }
+    if ((m = t.match(/^summari[sz]e (?:my )?(\w+?)(?: group| chat| messages)?$/i))) {
+      return normalizeToolCall('summarize_messages', { app_name: '', contact_name: titleCase(m[1]), question: t });
+    }
     if ((m = t.match(/^reply(?: to (\w+))?(?: saying)?\s+(.+)$/i))) {
       return normalizeToolCall('reply_message', { contact_name: m[1] ? titleCase(m[1]) : '', message: m[2] });
     }
@@ -63,5 +75,11 @@ export class MockProvider {
     }
     if (/^(hi|hello|hey)\b/i.test(t)) return answer('Hello! How can I help?');
     return answer("I'm running in offline test mode, so I can only handle simple commands.");
+  }
+
+  async generate({ text, image }) {
+    if (image) return "I can see your screen, but I'm in offline test mode so I can't describe it.";
+    const count = text.split('\n').filter((line) => line.startsWith('[')).length;
+    return `You have ${count} ${count === 1 ? 'notification' : 'notifications'}. I'm in offline test mode, so I can't summarise them.`;
   }
 }

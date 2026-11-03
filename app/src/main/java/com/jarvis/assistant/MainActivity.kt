@@ -31,6 +31,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jarvis.assistant.data.settings.SettingsRepository
+import com.jarvis.assistant.platform.PhoneFinder
+import com.jarvis.assistant.platform.ScreenCapture
 import com.jarvis.assistant.platform.UnlockCoordinator
 import com.jarvis.assistant.platform.WhatsAppSendCoordinator
 import com.jarvis.assistant.service.JarvisListeningService
@@ -50,6 +52,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var whatsApp: WhatsAppSendCoordinator
     @Inject lateinit var unlock: UnlockCoordinator
+    @Inject lateinit var screen: ScreenCapture
+    @Inject lateinit var phoneFinder: PhoneFinder
 
     /** Bumped for each "start listening" request from the widget, tile or notification. */
     private var listenRequests by mutableIntStateOf(0)
@@ -91,6 +95,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        screen.jarvisInForeground = true
+    }
+
+    override fun onStop() {
+        screen.jarvisInForeground = false
+        super.onStop()
+    }
+
+    /** Any touch on Jarvis means "found it": stop the find-my-phone ring. */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (phoneFinder.isRinging) phoneFinder.stop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
@@ -98,6 +118,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
+            ACTION_STOP_RINGING -> {
+                phoneFinder.stop()
+                intent.action = null
+            }
             ACTION_LISTEN -> {
                 listenRequests++
                 intent.action = null
@@ -118,9 +142,16 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_LISTEN = "com.jarvis.assistant.action.LISTEN"
+        private const val ACTION_STOP_RINGING = "com.jarvis.assistant.action.STOP_RINGING"
         private const val ACTION_CONFIGURE = "com.jarvis.assistant.action.DEBUG_CONFIGURE"
         private const val EXTRA_BACKEND_URL = "backend_url"
         private const val EXTRA_SHARED_SECRET = "shared_secret"
+
+        /** Opens Jarvis from the find-my-phone notification and silences it. */
+        fun stopRingingIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .setAction(ACTION_STOP_RINGING)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
         fun listenIntent(context: Context): Intent =
             Intent(context, MainActivity::class.java)

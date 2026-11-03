@@ -40,6 +40,8 @@ class SettingsRepository @Inject constructor(
         val boot = booleanPreferencesKey("start_on_boot")
         val shareContacts = booleanPreferencesKey("share_contact_names")
         val onboarding = booleanPreferencesKey("onboarding_complete")
+        val announceCalls = booleanPreferencesKey("announce_calls")
+        val screenAwareness = booleanPreferencesKey("screen_awareness")
     }
 
     override val settings: Flow<AppSettings> = store.data.map { p ->
@@ -57,6 +59,8 @@ class SettingsRepository @Inject constructor(
             startOnBoot = p[Keys.boot] ?: d.startOnBoot,
             shareContactNames = p[Keys.shareContacts] ?: d.shareContactNames,
             onboardingComplete = p[Keys.onboarding] ?: d.onboardingComplete,
+            announceCalls = p[Keys.announceCalls] ?: d.announceCalls,
+            screenAwareness = p[Keys.screenAwareness] ?: d.screenAwareness,
         )
     }
 
@@ -74,4 +78,6 @@ class SettingsRepository @Inject constructor(
     suspend fun setStartOnBoot(value: Boolean) = store.edit { it[Keys.boot] = value }
     suspend fun setShareContactNames(value: Boolean) = store.edit { it[Keys.shareContacts] = value }
     suspend fun setOnboardingComplete(value: Boolean) = store.edit { it[Keys.onboarding] = value }
+    suspend fun setAnnounceCalls(value: Boolean) = store.edit { it[Keys.announceCalls] = value }
+    suspend fun setScreenAwareness(value: Boolean) = store.edit { it[Keys.screenAwareness] = value }
 }

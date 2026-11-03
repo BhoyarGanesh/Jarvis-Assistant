@@ -2,9 +2,11 @@ package com.jarvis.assistant.data
 
 import com.jarvis.assistant.data.remote.BackendClient
 import com.jarvis.assistant.data.remote.HealthResult
+import com.jarvis.assistant.data.remote.TextResult
 import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.domain.InterpretResult
 import com.jarvis.assistant.domain.SettingsSource
+import com.jarvis.assistant.domain.messages.IncomingMessage
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -90,5 +92,44 @@ class BackendClientTest {
     @Test fun healthCheck() = runTest {
         enqueue(200, """{"ok":true,"provider":"gemini","model":"gemini-3.8-flash","configured":true}""")
         assertEquals(HealthResult.Ok("gemini", "gemini-3.8-flash", true), client.health(server.url("/").toString()))
+    }
+
+    @Test fun screenQuestionSendsImageAndReturnsText() = runTest {
+        enqueue(200, """{"text":"This looks like a scam.","provider":"gemini"}""")
+        val result = client.askAboutScreen("is this a scam?", "AAAA")
+
+        assertEquals(TextResult.Ok("This looks like a scam."), result)
+        val request = server.takeRequest()
+        assertEquals("/screen", request.url.encodedPath)
+        assertEquals("top-secret", request.headers["X-Jarvis-Secret"])
+        val body = Json.parseToJsonElement(request.body!!.utf8()).jsonObject
+        assertEquals("AAAA", body["image"]!!.jsonPrimitive.content)
+        assertEquals("image/jpeg", body["mimeType"]!!.jsonPrimitive.content)
+        assertEquals("is this a scam?", body["question"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun summarySendsTranscriptLinesAndGroupName() = runTest {
+        enqueue(200, """{"text":"Mom wants milk."}""")
+        val family = IncomingMessage(
+            key = "f", packageName = "com.whatsapp", appLabel = "WhatsApp", sender = "Mom in Family",
+            text = "bring milk", postedAt = 0, canReply = true, isConversation = true,
+            conversation = "Family", transcript = listOf("Ravi: dinner at 8", "Mom: bring milk"),
+        )
+        assertEquals(TextResult.Ok("Mom wants milk."), client.summarize("summarise my family group", listOf(family)))
+
+        val request = server.takeRequest()
+        assertEquals("/summarize", request.url.encodedPath)
+        val message = Json.parseToJsonElement(request.body!!.utf8()).jsonObject["messages"]!!.jsonArray.single().jsonObject
+        assertEquals("Family", message["chat"]!!.jsonPrimitive.content)
+        assertEquals("Ravi: dinner at 8\nMom: bring milk", message["text"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun textEndpointFailuresAreSpoken() = runTest {
+        enqueue(429, """{"error":"rate_limited","message":"Try again in a minute."}""")
+        assertEquals(TextResult.Failed("Try again in a minute."), client.askAboutScreen("explain this", "AAAA"))
+        enqueue(404, """{"error":"not_found","message":"Not found"}""")
+        assertTrue((client.askAboutScreen("explain this", "AAAA") as TextResult.Failed).spokenMessage.contains("out of date"))
+        enqueue(200, """{"text":"  "}""")
+        assertTrue(client.askAboutScreen("explain this", "AAAA") is TextResult.Failed)
     }
 }

@@ -38,6 +38,30 @@ class Phrases(private val hindi: Boolean) {
     fun replySent(name: String) = pick("Replied to $name", "$name को जवाब भेज दिया")
     fun unlockFirst() = pick("Please unlock your phone and try again.", "पहले फ़ोन अनलॉक कीजिए")
 
+    fun screenOff() = pick("Screen awareness is turned off in Jarvis settings.", "स्क्रीन देखने की सुविधा सेटिंग्स में बंद है")
+    fun screenUnavailable() = pick(
+        "To see your screen I need the Jarvis accessibility service, on Android 11 or newer. Please turn it on in Jarvis settings.",
+        "स्क्रीन देखने के लिए Jarvis की एक्सेसिबिलिटी सर्विस चालू कीजिए",
+    )
+    fun screenNeedsWakeWord() = pick(
+        "Open the app you want me to look at, then say Jarvis and ask again.",
+        "जिस ऐप को दिखाना है उसे खोलिए, फिर Jarvis बोलकर पूछिए",
+    )
+    fun screenSecure() = pick("That app blocks screenshots, so I can't see it.", "यह ऐप स्क्रीनशॉट की अनुमति नहीं देता")
+
+    fun foundMe() = pick("I'm here!", "मैं यहाँ हूँ!")
+
+    fun someone() = pick("Someone", "कोई")
+    fun isCalling(who: String) =
+        pick("$who is calling. Answer, reject, or tell me what to text them?", "$who का कॉल है। उठाऊँ, काटूँ, या कोई मैसेज भेजूँ?")
+    fun callOptions() = pick("Sorry, should I answer, reject, or send a message?", "माफ़ कीजिए, उठाऊँ, काटूँ, या मैसेज भेजूँ?")
+    fun callDeclined() = pick("Declined.", "कॉल काट दिया")
+    fun letItRing() = pick("OK, I'll let it ring.", "ठीक है, बजने देता हूँ")
+    fun couldNotAnswer() = pick("I couldn't answer the call. Please allow Jarvis to manage calls.", "कॉल नहीं उठा पाया")
+    fun couldNotDecline() = pick("I couldn't decline the call. Please allow Jarvis to manage calls.", "कॉल नहीं काट पाया")
+    fun cantTextUnknownCaller() =
+        pick("I declined it, but I don't know their number, so I couldn't text them.", "कॉल काट दिया, पर नंबर नहीं पता इसलिए मैसेज नहीं भेज पाया")
+
     fun backendNotSet() =
         pick("Please set the backend URL and shared secret in settings first.", "पहले सेटिंग्स में बैकएंड सेट कीजिए")
 

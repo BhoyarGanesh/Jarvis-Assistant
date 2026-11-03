@@ -46,6 +46,20 @@ sealed interface AssistantCommand {
         override val toolName = "reply_message"
     }
 
+    /** A question about whatever was on screen when the user said "Jarvis". */
+    data class ScreenQuestion(val question: String) : AssistantCommand {
+        override val toolName = "screen_question"
+    }
+
+    /** Blank filters mean "any"; [contactName] may be a group name like "Family". */
+    data class SummarizeMessages(val appName: String, val contactName: String, val question: String) : AssistantCommand {
+        override val toolName = "summarize_messages"
+    }
+
+    data object FindPhone : AssistantCommand {
+        override val toolName = "find_phone"
+    }
+
     data class Answer(val text: String) : AssistantCommand {
         override val toolName = "answer"
     }

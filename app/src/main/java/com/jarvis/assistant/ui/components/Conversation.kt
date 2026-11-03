@@ -34,6 +34,8 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.MobileFriendly
+import androidx.compose.material.icons.rounded.ScreenSearchDesktop
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sms
@@ -77,6 +79,8 @@ fun ActionKind.icon(): ImageVector = when (this) {
     ActionKind.SEARCH -> Icons.Rounded.Search
     ActionKind.MUSIC -> Icons.Rounded.MusicNote
     ActionKind.MESSAGES -> Icons.Rounded.Forum
+    ActionKind.SCREEN -> Icons.Rounded.ScreenSearchDesktop
+    ActionKind.FIND_PHONE -> Icons.Rounded.MobileFriendly
     ActionKind.ANSWER -> Icons.Rounded.AutoAwesome
     ActionKind.INFO -> Icons.Rounded.Info
 }
@@ -89,6 +93,8 @@ fun ActionKind.accent(): Color = when (this) {
     ActionKind.APP, ActionKind.SEARCH -> JarvisColors.Violet
     ActionKind.MUSIC -> JarvisColors.Magenta
     ActionKind.MESSAGES -> JarvisColors.Cyan
+    ActionKind.SCREEN -> JarvisColors.Violet
+    ActionKind.FIND_PHONE -> JarvisColors.Warning
     ActionKind.ANSWER -> Color(0xFF9D7BFF)
     ActionKind.INFO -> JarvisColors.TextSecondary
 }

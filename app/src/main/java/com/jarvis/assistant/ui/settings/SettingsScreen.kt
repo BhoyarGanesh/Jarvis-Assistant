@@ -1,5 +1,7 @@
 package com.jarvis.assistant.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,6 +67,10 @@ fun SettingsScreen(
     val batteryExempt = remember(resumeTick) { SystemSettings.ignoringBatteryOptimizations(context) }
     val overlayAllowed = remember(resumeTick) { SystemSettings.canDrawOverlays(context) }
     val messagesOn = remember(resumeTick) { SystemSettings.notificationAccessGranted(context) }
+    val callsAllowed = remember(resumeTick) { SystemSettings.callAnnouncePermitted(context) }
+    val callPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        viewModel.setAnnounceCalls(SystemSettings.callAnnouncePermitted(context))
+    }
 
     AuroraBackground {
         Column(
@@ -163,6 +169,34 @@ fun SettingsScreen(
                 )
             }
 
+            SectionLabel("Smart features")
+            GlassCard(Modifier.fillMaxWidth()) {
+                SettingSwitch(
+                    "Screen awareness",
+                    "Ask “Jarvis, what's on my screen?”, “translate this” or “is this a scam?”. When you say “Jarvis”, " +
+                        "a screenshot of the app you're in is held in memory for a minute and sent to your backend's AI only " +
+                        "if you ask about the screen. Needs the accessibility service (Android 11+).",
+                    settings.screenAwareness,
+                    viewModel::setScreenAwareness,
+                )
+                Divider()
+                SettingSwitch(
+                    "Announce callers",
+                    "Jarvis says “King is calling” and listens for “answer”, “reject” or “tell him I'll call back in " +
+                        "10 minutes”. Works while Jarvis listens in the background. Needs phone and call log permissions.",
+                    settings.announceCalls,
+                ) { on ->
+                    if (on && !callsAllowed) callPermissions.launch(SystemSettings.callPermissions) else viewModel.setAnnounceCalls(on)
+                }
+                Divider()
+                Text(
+                    "“What did I miss?” and “summarise my Family group” send the matching notifications' text to your " +
+                        "backend's AI, only when you ask. Nothing is stored.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = JarvisColors.TextMuted,
+                )
+            }
+
             SectionLabel("Safety")
             GlassCard(Modifier.fillMaxWidth()) {
                 SettingSwitch(
@@ -184,7 +218,7 @@ fun SettingsScreen(
 
             SectionLabel("Permissions & background")
             GlassCard(Modifier.fillMaxWidth()) {
-                StatusRow("WhatsApp auto-send (Accessibility)", accessibilityOn, "Open") {
+                StatusRow("WhatsApp auto-send & screen reading (Accessibility)", accessibilityOn, "Open") {
                     SystemSettings.openAccessibilitySettings(context)
                 }
                 Divider()

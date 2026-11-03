@@ -19,6 +19,9 @@ const CASES = [
   ['play_music', { query: 'lofi beats' }],
   ['read_notifications', { app_name: 'WhatsApp', contact_name: '' }],
   ['reply_message', { contact_name: '', message: 'on my way' }],
+  ['screen_question', { question: 'is this a scam?' }],
+  ['summarize_messages', { app_name: 'WhatsApp', contact_name: 'Family', question: 'summarise my family group' }],
+  ['find_phone', {}],
   ['answer', { text: 'Paris is the capital of France.' }],
 ];
 
@@ -159,4 +162,63 @@ test('normalizeToolCall rejects unknown tools and bad args', () => {
   assert.equal(normalizeToolCall('set_alarm', { hour: 25, minute: 0, label: '' }).tool, 'answer');
   assert.equal(normalizeToolCall('call_contact', { name: '   ' }).tool, 'answer');
   assert.deepEqual(normalizeToolCall('set_timer', { seconds: '60' }), { tool: 'set_timer', args: { seconds: 60, label: '' } });
+});
+
+test('gemini generate sends the image before the text and returns the reply', async () => {
+  let seen;
+  const provider = fakeGemini(async (req) => {
+    seen = req;
+    return { text: '  This looks like a scam.  ' };
+  });
+  const text = await provider.generate({ system: 'sys', text: 'is this a scam?', image: { mimeType: 'image/jpeg', data: 'AAAA' } });
+  assert.equal(text, 'This looks like a scam.');
+  assert.deepEqual(seen.contents[0].parts[0], { inlineData: { mimeType: 'image/jpeg', data: 'AAAA' } });
+  assert.equal(seen.contents[0].parts[1].text, 'is this a scam?');
+  assert.equal(seen.config.systemInstruction, 'sys');
+  assert.equal(seen.config.tools, undefined);
+});
+
+test('gemini generate falls back to the next model', async () => {
+  const tried = [];
+  const provider = new GeminiProvider({
+    model: 'primary',
+    fallbackModels: ['backup'],
+    client: {
+      models: {
+        generateContent: async ({ model }) => {
+          tried.push(model);
+          if (model === 'primary') throw new ApiError({ message: 'busy', status: 503 });
+          return { text: 'Two messages from Mom.' };
+        },
+      },
+    },
+  });
+  assert.equal(await provider.generate({ system: 's', text: 't' }), 'Two messages from Mom.');
+  assert.deepEqual(tried, ['primary', 'backup']);
+});
+
+test('anthropic generate sends an image block without tools', async () => {
+  let seen;
+  const provider = fakeAnthropic(async (req) => {
+    seen = req;
+    return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'A bill for 450 rupees.' }] };
+  });
+  const text = await provider.generate({ system: 'sys', text: 'explain this', image: { mimeType: 'image/png', data: 'BBBB' } });
+  assert.equal(text, 'A bill for 450 rupees.');
+  assert.deepEqual(seen.messages[0].content[0], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'BBBB' } });
+  assert.equal(seen.system, 'sys');
+  assert.equal(seen.tools, undefined);
+  assert.equal(seen.fallbacks, 'default');
+});
+
+test('anthropic generate turns a refusal into a polite reply', async () => {
+  const provider = fakeAnthropic(async () => ({ stop_reason: 'refusal', content: [] }));
+  assert.match(await provider.generate({ system: 's', text: 't' }), /can't help/);
+});
+
+test('generate without a key reports not_configured', async () => {
+  await assert.rejects(
+    new GeminiProvider({ apiKey: '', model: 'm' }).generate({ system: 's', text: 't' }),
+    (e) => e.kind === 'not_configured',
+  );
 });

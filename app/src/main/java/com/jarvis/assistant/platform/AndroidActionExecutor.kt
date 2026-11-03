@@ -18,6 +18,9 @@ import android.telephony.SmsManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.jarvis.assistant.data.remote.BackendClient
+import com.jarvis.assistant.data.remote.TextResult
+import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.ActionExecutor
 import com.jarvis.assistant.domain.ActionOutcome
 import com.jarvis.assistant.domain.ActionStatus
@@ -40,6 +43,10 @@ class AndroidActionExecutor @Inject constructor(
     private val whatsApp: WhatsAppSendCoordinator,
     private val notifications: NotificationStore,
     private val unlock: UnlockCoordinator,
+    private val screen: ScreenCapture,
+    private val phoneFinder: PhoneFinder,
+    private val backend: BackendClient,
+    private val settings: SettingsRepository,
 ) : ActionExecutor {
 
     override suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome =
@@ -69,8 +76,46 @@ class AndroidActionExecutor @Inject constructor(
             is AssistantCommand.PlayMusic -> playMusic(command.query, phrases)
             is AssistantCommand.ReadNotifications -> readNotifications(command, phrases)
             is AssistantCommand.ReplyMessage -> replyMessage(command, phrases)
+            is AssistantCommand.ScreenQuestion -> askAboutScreen(command.question, phrases)
+            is AssistantCommand.SummarizeMessages -> summarize(command, phrases)
+            AssistantCommand.FindPhone -> {
+                phoneFinder.ring()
+                ActionOutcome(ActionStatus.SUCCESS, phrases.foundMe())
+            }
             is AssistantCommand.Answer -> ActionOutcome(ActionStatus.SUCCESS, command.text)
         }
+
+    private suspend fun askAboutScreen(question: String, phrases: Phrases): ActionOutcome {
+        val shot = screen.take()
+        if (!settings.current().screenAwareness) return ActionOutcome(ActionStatus.FAILED, phrases.screenOff())
+        if (!screen.isAvailable) {
+            return ActionOutcome(ActionStatus.FAILED, phrases.screenUnavailable(), "Accessibility service off or Android < 11")
+        }
+        return when (shot) {
+            null -> ActionOutcome(ActionStatus.NEEDS_USER, phrases.screenNeedsWakeWord(), "No screenshot from this wake word")
+            ScreenCapture.Shot.Secure -> ActionOutcome(ActionStatus.FAILED, phrases.screenSecure())
+            is ScreenCapture.Shot.Image -> when (val r = backend.askAboutScreen(question, shot.jpegBase64)) {
+                is TextResult.Ok -> ActionOutcome(ActionStatus.SUCCESS, r.text)
+                is TextResult.Failed -> ActionOutcome(ActionStatus.FAILED, r.spokenMessage)
+            }
+        }
+    }
+
+    private suspend fun summarize(command: AssistantCommand.SummarizeMessages, phrases: Phrases): ActionOutcome {
+        if (!notifications.isAccessGranted()) {
+            return ActionOutcome(ActionStatus.FAILED, phrases.needNotificationAccess(), "Notification access not granted")
+        }
+        val items = MessageSelector.select(notifications.messages(), command.appName, command.contactName, limit = SUMMARY_LIMIT)
+            .sortedBy { it.postedAt }
+        if (items.isEmpty()) {
+            val speech = if (command.contactName.isNotBlank()) phrases.noMessagesFrom(command.contactName) else phrases.noMessages()
+            return ActionOutcome(ActionStatus.SUCCESS, speech)
+        }
+        return when (val r = backend.summarize(command.question, items)) {
+            is TextResult.Ok -> ActionOutcome(ActionStatus.SUCCESS, r.text, "${items.size} notifications summarised")
+            is TextResult.Failed -> ActionOutcome(ActionStatus.FAILED, r.spokenMessage)
+        }
+    }
 
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -244,5 +289,6 @@ class AndroidActionExecutor @Inject constructor(
 
     companion object {
         val WHATSAPP_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
+        private const val SUMMARY_LIMIT = 40
     }
 }

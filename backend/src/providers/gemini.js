@@ -20,22 +20,46 @@ export class GeminiProvider {
    * @param {{ apiKey?: string, model: string, fallbackModels?: string[], timeoutMs?: number,
    *           client?: { models: { generateContent: Function } } }} opts
    */
-  constructor({ apiKey, model, fallbackModels = [], timeoutMs = 12_000, client }) {
+  constructor({ apiKey, model, fallbackModels = [], timeoutMs = 12_000, generateTimeoutMs = 25_000, client }) {
     this.model = model;
     this.models = [model, ...fallbackModels.filter((m) => m && m !== model)];
     this.timeoutMs = timeoutMs;
+    this.generateTimeoutMs = generateTimeoutMs;
     this.configured = Boolean(client) || !isMissingSecret(apiKey);
     this.client = client ?? (this.configured ? new GoogleGenAI({ apiKey }) : null);
   }
 
   async interpret(request) {
+    return toToolCall(await this.withFallback((model) => this.call(model, request)));
+  }
+
+  /** Free-form spoken reply, optionally about an image (screen questions, summaries). */
+  async generate({ system, text, image }) {
+    const parts = [];
+    if (image) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+    parts.push({ text });
+    const response = await this.withFallback((model) =>
+      this.client.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts }],
+        config: {
+          systemInstruction: system,
+          maxOutputTokens: 1024,
+          httpOptions: { timeout: this.generateTimeoutMs, retryOptions: { attempts: 1 } },
+        },
+      }),
+    );
+    return response.text?.trim() || FALLBACK_TEXT;
+  }
+
+  async withFallback(request) {
     if (!this.configured) {
       throw new ProviderError('not_configured', 'GEMINI_API_KEY is not set in backend/.env');
     }
     let lastError;
     for (const model of this.models) {
       try {
-        return toToolCall(await this.call(model, request));
+        return await request(model);
       } catch (err) {
         lastError = err;
         if (!FALLBACK_STATUSES.has(statusOf(err)) && !isTimeout(err)) break;

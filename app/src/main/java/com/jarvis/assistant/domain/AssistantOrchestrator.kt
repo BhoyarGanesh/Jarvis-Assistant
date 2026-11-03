@@ -1,5 +1,8 @@
 package com.jarvis.assistant.domain
 
+import com.jarvis.assistant.domain.calls.CallDecision
+import com.jarvis.assistant.domain.calls.CallReplyParser
+import com.jarvis.assistant.domain.calls.IncomingCall
 import com.jarvis.assistant.domain.contacts.ChoiceResult
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.contacts.ContactMatch
@@ -10,9 +13,11 @@ import com.jarvis.assistant.domain.model.needsConfirmation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +43,7 @@ class AssistantOrchestrator(
     private val chime: Chime,
     private val wakeWord: WakeWordControl,
     private val executor: ActionExecutor,
+    private val calls: CallControl,
     private val actionLog: ActionLog,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -50,6 +56,7 @@ class AssistantOrchestrator(
     val level: StateFlow<Float> = _level.asStateFlow()
 
     private var session: Job? = null
+    private var callSession: Job? = null
     private var confirmDecision: CompletableDeferred<Boolean>? = null
     private var choiceTap: CompletableDeferred<Int>? = null
     private var cardIds = 0L
@@ -124,18 +131,142 @@ class AssistantOrchestrator(
             speechOutput.stop()
             throw e
         } finally {
-            confirmDecision = null
-            choiceTap = null
-            _level.value = 0f
-            withContext(NonCancellable) {
-                _state.update {
-                    it.copy(
-                        phase = if (it.phase == AssistantPhase.ERROR) AssistantPhase.ERROR else AssistantPhase.IDLE,
-                        confirmation = null,
-                        disambiguation = null,
-                    )
+            endSession()
+        }
+    }
+
+    private suspend fun endSession() {
+        confirmDecision = null
+        choiceTap = null
+        _level.value = 0f
+        withContext(NonCancellable) {
+            _state.update {
+                it.copy(
+                    phase = if (it.phase == AssistantPhase.ERROR) AssistantPhase.ERROR else AssistantPhase.IDLE,
+                    confirmation = null,
+                    disambiguation = null,
+                )
+            }
+            wakeWord.resume()
+        }
+    }
+
+    /**
+     * Says who is calling and acts on the spoken reply ("answer", "reject", "tell him I'll call back").
+     * Takes over from any interaction in progress, since the ringing call interrupts it anyway.
+     */
+    fun announceCall(call: IncomingCall) {
+        if (callSession?.isActive == true) return
+        val previous = session
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            previous?.cancelAndJoin()
+            runCallSession(call)
+        }
+        session = job
+        callSession = job
+        job.start()
+    }
+
+    /** The call was picked up on screen, missed or hung up: stop announcing it. */
+    fun callStopped() {
+        callSession?.cancel()
+        callSession = null
+    }
+
+    private suspend fun runCallSession(call: IncomingCall) {
+        val settings = settingsSource.current()
+        val phrases = Phrases(settings.isHindi)
+        val who = call.callerName?.takeIf { it.isNotBlank() }
+            ?: call.number?.takeIf { it.isNotBlank() }?.let(::spellOut)
+            ?: phrases.someone()
+        var said = ""
+        try {
+            _state.update { it.copy(transcript = "", reply = "", errorMessage = null, confirmation = null, disambiguation = null) }
+            wakeWord.pause()
+            calls.silenceRinger()
+
+            var decision: CallDecision = CallDecision.Unclear
+            var prompt = phrases.isCalling(who)
+            for (attempt in 1..CALL_LISTEN_ATTEMPTS) {
+                // Spoken even with voice replies off: announcing the caller is the whole point.
+                _state.update { it.copy(phase = AssistantPhase.SPEAKING, reply = prompt) }
+                speechOutput.speak(prompt, settings.languageTag)
+                said = (listen(settings) as? SpeechResult.Text)?.text.orEmpty()
+                if (said.isNotBlank()) _state.update { it.copy(transcript = said) }
+                decision = CallReplyParser.parse(said)
+                if (decision != CallDecision.Unclear) break
+                prompt = phrases.callOptions()
+            }
+            // From here on the call ending (for example because we just answered it) must not cut us off.
+            callSession = null
+            _state.update { it.copy(phase = AssistantPhase.THINKING) }
+            handleCallDecision(decision, call, who, said, settings, phrases)
+        } catch (e: CancellationException) {
+            speechInput.cancel()
+            speechOutput.stop()
+            throw e
+        } finally {
+            calls.restoreRinger()
+            endSession()
+        }
+    }
+
+    private suspend fun handleCallDecision(
+        decision: CallDecision,
+        call: IncomingCall,
+        who: String,
+        said: String,
+        settings: AppSettings,
+        phrases: Phrases,
+    ) {
+        when (decision) {
+            CallDecision.Answer -> {
+                val ok = calls.answer()
+                val summary = "Answered call from $who"
+                addCard(ActionKind.CALL, if (ok) summary else phrases.couldNotAnswer(), status = if (ok) ActionStatus.SUCCESS else ActionStatus.FAILED)
+                log(said, CALL_TOOL, summary, if (ok) ActionStatus.SUCCESS else ActionStatus.FAILED)
+                // Once answered the caller would hear anything Jarvis says.
+                if (!ok) speak(phrases.couldNotAnswer(), settings)
+            }
+            CallDecision.Reject -> {
+                val ok = calls.reject()
+                val speech = if (ok) phrases.callDeclined() else phrases.couldNotDecline()
+                addCard(ActionKind.CALL, speech, "Call from $who", if (ok) ActionStatus.SUCCESS else ActionStatus.FAILED)
+                log(said, CALL_TOOL, "Declined call from $who", if (ok) ActionStatus.SUCCESS else ActionStatus.FAILED)
+                speak(speech, settings)
+            }
+            is CallDecision.DeclineWithMessage -> {
+                if (!calls.reject()) {
+                    addCard(ActionKind.CALL, phrases.couldNotDecline(), "Call from $who", ActionStatus.FAILED)
+                    log(said, CALL_TOOL, "Could not decline call from $who", ActionStatus.FAILED)
+                    speak(phrases.couldNotDecline(), settings)
+                    return
                 }
-                wakeWord.resume()
+                val number = call.number?.takeIf { it.isNotBlank() }
+                if (number == null) {
+                    addCard(ActionKind.CALL, phrases.cantTextUnknownCaller(), decision.text, ActionStatus.FAILED)
+                    log(said, CALL_TOOL, "Declined call from $who; no number to text", ActionStatus.FAILED)
+                    speak(phrases.cantTextUnknownCaller(), settings)
+                    return
+                }
+                val name = call.callerName?.takeIf { it.isNotBlank() } ?: number
+                val sms = AssistantCommand.SendSms(name, decision.text)
+                val outcome = try {
+                    executor.execute(sms, Contact(0, name, number), phrases)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ActionOutcome(ActionStatus.FAILED, "I declined it, but couldn't send the text.", e.message)
+                }
+                val speech = "${phrases.callDeclined()} ${outcome.speech}"
+                addCard(ActionKind.SMS, speech, describe(sms, null), outcome.status)
+                log(said, CALL_TOOL, "Declined call from $who and texted: ${decision.text}", outcome.status, outcome.detail)
+                speak(speech, settings)
+            }
+            CallDecision.Unclear -> {
+                addCard(ActionKind.CALL, phrases.letItRing(), "Call from $who", ActionStatus.CANCELLED)
+                log(said, CALL_TOOL, "Call from $who left ringing", ActionStatus.CANCELLED)
+                speak(phrases.letItRing(), settings)
             }
         }
     }
@@ -153,7 +284,7 @@ class AssistantOrchestrator(
     private suspend fun handle(command: AssistantCommand, transcript: String, settings: AppSettings, phrases: Phrases) {
         if (command is AssistantCommand.Answer) {
             addCard(ActionKind.ANSWER, command.text)
-            log(transcript, command, command.text, ActionStatus.SUCCESS)
+            log(transcript, command.toolName, command.text, ActionStatus.SUCCESS)
             speak(command.text, settings)
             return
         }
@@ -162,13 +293,13 @@ class AssistantOrchestrator(
         val spokenName = command.contactName
         if (spokenName != null) {
             contact = resolveContact(spokenName, settings, phrases) ?: run {
-                log(transcript, command, "Contact not resolved: $spokenName", ActionStatus.FAILED)
+                log(transcript, command.toolName, "Contact not resolved: $spokenName", ActionStatus.FAILED)
                 return
             }
             if (contact.phoneNumber.isBlank()) {
                 val msg = phrases.noPhoneNumber(contact.displayName)
                 addCard(ActionKind.INFO, msg, status = ActionStatus.FAILED)
-                log(transcript, command, msg, ActionStatus.FAILED)
+                log(transcript, command.toolName, msg, ActionStatus.FAILED)
                 speak(msg, settings)
                 return
             }
@@ -178,7 +309,7 @@ class AssistantOrchestrator(
             val confirmed = countdown(command, contact, settings)
             if (!confirmed) {
                 addCard(kindOf(command), phrases.cancelled(), describe(command, contact), ActionStatus.CANCELLED)
-                log(transcript, command, "Cancelled: ${describe(command, contact)}", ActionStatus.CANCELLED)
+                log(transcript, command.toolName, "Cancelled: ${describe(command, contact)}", ActionStatus.CANCELLED)
                 speak(phrases.cancelled(), settings)
                 return
             }
@@ -193,7 +324,7 @@ class AssistantOrchestrator(
             ActionOutcome(ActionStatus.FAILED, "Something went wrong while doing that.", e.message)
         }
         addCard(kindOf(command), outcome.speech, describe(command, contact), outcome.status)
-        log(transcript, command, describe(command, contact), outcome.status, outcome.detail)
+        log(transcript, command.toolName, describe(command, contact), outcome.status, outcome.detail)
         speak(outcome.speech, settings)
     }
 
@@ -308,19 +439,24 @@ class AssistantOrchestrator(
 
     private suspend fun log(
         transcript: String,
-        command: AssistantCommand,
+        tool: String,
         summary: String,
         status: ActionStatus,
         detail: String? = null,
     ) {
         runCatching {
-            actionLog.record(ActionLogEntry(clock(), transcript, command.toolName, summary, status, detail))
+            actionLog.record(ActionLogEntry(clock(), transcript, tool, summary, status, detail))
         }
     }
 
     companion object {
         const val MAX_CARDS = 4
         private const val ERROR_FLASH_MS = 600L
+        private const val CALL_LISTEN_ATTEMPTS = 2
+        const val CALL_TOOL = "incoming_call"
+
+        /** "+91 98..." read digit by digit instead of as one huge number. */
+        private fun spellOut(number: String) = number.filter { it.isDigit() }.toList().joinToString(" ")
 
         fun kindOf(command: AssistantCommand): ActionKind = when (command) {
             is AssistantCommand.CallContact -> ActionKind.CALL
@@ -331,7 +467,10 @@ class AssistantOrchestrator(
             is AssistantCommand.OpenApp -> ActionKind.APP
             is AssistantCommand.WebSearch -> ActionKind.SEARCH
             is AssistantCommand.PlayMusic -> ActionKind.MUSIC
-            is AssistantCommand.ReadNotifications, is AssistantCommand.ReplyMessage -> ActionKind.MESSAGES
+            is AssistantCommand.ReadNotifications, is AssistantCommand.ReplyMessage,
+            is AssistantCommand.SummarizeMessages -> ActionKind.MESSAGES
+            is AssistantCommand.ScreenQuestion -> ActionKind.SCREEN
+            AssistantCommand.FindPhone -> ActionKind.FIND_PHONE
             is AssistantCommand.Answer -> ActionKind.ANSWER
         }
 
@@ -349,6 +488,11 @@ class AssistantOrchestrator(
                 listOf(command.appName, command.contactName).filter { it.isNotBlank() }.joinToString(prefix = " ", separator = ", ")
                     .takeIf { it.isNotBlank() }.orEmpty()
             is AssistantCommand.ReplyMessage -> "Reply to ${command.contactName.ifBlank { "latest message" }}: ${command.message}"
+            is AssistantCommand.ScreenQuestion -> "Screen: ${command.question}"
+            is AssistantCommand.SummarizeMessages -> "Summary of messages" +
+                listOf(command.appName, command.contactName).filter { it.isNotBlank() }.joinToString(prefix = " ", separator = ", ")
+                    .takeIf { it.isNotBlank() }.orEmpty()
+            AssistantCommand.FindPhone -> "Find my phone"
             is AssistantCommand.Answer -> command.text
         }
     }

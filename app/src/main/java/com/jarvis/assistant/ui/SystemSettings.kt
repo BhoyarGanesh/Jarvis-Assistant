@@ -24,6 +24,17 @@ object SystemSettings {
         Manifest.permission.SEND_SMS,
     )
 
+    /** For caller announcements. Call log reveals the caller's number; contacts turn it into a name. */
+    val callPermissions = arrayOf(
+        Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.ANSWER_PHONE_CALLS,
+        Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.READ_CONTACTS,
+    )
+
+    fun callAnnouncePermitted(context: Context): Boolean =
+        granted(context, Manifest.permission.READ_PHONE_STATE) && granted(context, Manifest.permission.ANSWER_PHONE_CALLS)
+
     fun granted(context: Context, permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 

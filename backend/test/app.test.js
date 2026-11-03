@@ -17,8 +17,8 @@ async function start(provider, opts = {}) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-const post = (base, body, secret = SECRET) =>
-  fetch(`${base}/interpret`, {
+const post = (base, body, secret = SECRET, path = '/interpret') =>
+  fetch(`${base}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(secret ? { 'x-jarvis-secret': secret } : {}) },
     body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -61,6 +61,10 @@ const PHRASES = [
   ['hello', 'answer', { text: 'Hello! How can I help?' }],
   ['read my whatsapp messages', 'read_notifications', { app_name: 'Whatsapp', contact_name: '' }],
   ['reply to king saying on my way', 'reply_message', { contact_name: 'King', message: 'on my way' }],
+  ['Jarvis, where are you?', 'find_phone', {}],
+  ['is this a scam', 'screen_question', { question: 'is this a scam' }],
+  ['what did I miss', 'summarize_messages', { app_name: '', contact_name: '', question: 'what did I miss' }],
+  ['summarise my family group', 'summarize_messages', { app_name: '', contact_name: 'Family', question: 'summarise my family group' }],
 ];
 
 for (const [text, tool, args] of PHRASES) {
@@ -108,4 +112,78 @@ test('local rate limiter kicks in', async () => {
   const res = await post(url, { text: 'hi' });
   assert.equal(res.status, 429);
   assert.equal((await res.json()).error, 'rate_limited');
+});
+
+// A tiny but valid base64 payload; the mock provider never decodes it.
+const IMAGE = Buffer.from('fake-jpeg-bytes').toString('base64');
+
+test('screen answers a question about a screenshot', async () => {
+  const res = await post(base, { question: 'is this a scam?', image: IMAGE }, SECRET, '/screen');
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.match(body.text, /see your screen/);
+  assert.equal(body.provider, 'mock');
+});
+
+test('screen validates question, image and mime type', async () => {
+  for (const body of [
+    { image: IMAGE },
+    { question: 'what is this' },
+    { question: 'what is this', image: 'not base64!' },
+    { question: 'what is this', image: IMAGE, mimeType: 'image/gif' },
+  ]) {
+    const res = await post(base, body, SECRET, '/screen');
+    assert.equal(res.status, 400, JSON.stringify(body));
+  }
+});
+
+test('screen requires the shared secret before reading the body', async () => {
+  assert.equal((await post(base, { question: 'x', image: IMAGE }, null, '/screen')).status, 401);
+});
+
+test('screen accepts a realistic screenshot size but rejects huge uploads', async () => {
+  const realistic = 'A'.repeat(600_000);
+  assert.equal((await post(base, { question: 'explain this', image: realistic }, SECRET, '/screen')).status, 200);
+  const huge = 'A'.repeat(5_000_000);
+  const res = await post(base, { question: 'explain this', image: huge }, SECRET, '/screen');
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).error, 'invalid_request');
+});
+
+test('summarize condenses notifications', async () => {
+  const messages = [
+    { app: 'WhatsApp', chat: 'Family', sender: 'Mom', text: 'Dinner at 8', time: '19:02' },
+    { app: 'WhatsApp', chat: 'Family', sender: 'Dad', text: 'Bring milk', time: '19:05' },
+  ];
+  const res = await post(base, { question: 'summarise my family group', messages }, SECRET, '/summarize');
+  assert.equal(res.status, 200);
+  assert.match((await res.json()).text, /2 notifications/);
+});
+
+test('summarize rejects empty or oversized message lists', async () => {
+  assert.equal((await post(base, { messages: [] }, SECRET, '/summarize')).status, 400);
+  const many = Array.from({ length: 61 }, () => ({ text: 'hi' }));
+  assert.equal((await post(base, { messages: many }, SECRET, '/summarize')).status, 400);
+});
+
+test('screen and summary prompts tie the reply language to the question', async () => {
+  const seen = [];
+  const url = await start({
+    name: 'spy',
+    model: 'x',
+    configured: true,
+    interpret: async () => ({ tool: 'answer', args: { text: 'hi' } }),
+    generate: async (req) => {
+      seen.push(req);
+      return 'ok';
+    },
+  });
+  await post(url, { question: 'explain the screen', image: IMAGE, locale: 'hi-IN' }, SECRET, '/screen');
+  await post(url, { question: 'what did I miss', messages: [{ text: 'नमस्ते' }] }, SECRET, '/summarize');
+  for (const req of seen) {
+    assert.match(req.system, /same language the user's question is written in/);
+    assert.doesNotMatch(req.system, /prefers Hindi/);
+    assert.match(req.text, /same language as this question/);
+  }
+  assert.equal(seen.length, 2);
 });

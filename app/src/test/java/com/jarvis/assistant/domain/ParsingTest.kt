@@ -31,7 +31,18 @@ class CommandParserTest {
         assertEquals(AssistantCommand.OpenApp("YouTube"), parse("open_app", """{"app_name":"YouTube"}"""))
         assertEquals(AssistantCommand.WebSearch("weather"), parse("web_search", """{"query":"weather"}"""))
         assertEquals(AssistantCommand.PlayMusic("lofi"), parse("play_music", """{"query":"lofi"}"""))
+        assertEquals(AssistantCommand.ScreenQuestion("is this a scam?"), parse("screen_question", """{"question":"is this a scam?"}"""))
+        assertEquals(
+            AssistantCommand.SummarizeMessages("", "Family", "summarise my family group"),
+            parse("summarize_messages", """{"app_name":"","contact_name":"Family","question":"summarise my family group"}"""),
+        )
+        assertEquals(AssistantCommand.SummarizeMessages("", "", ""), parse("summarize_messages", "{}"))
+        assertEquals(AssistantCommand.FindPhone, parse("find_phone", "{}"))
         assertEquals(AssistantCommand.Answer("Hello"), parse("answer", """{"text":"Hello"}"""))
+    }
+
+    @Test fun screenQuestionNeedsAQuestion() {
+        assertEquals(AssistantCommand.Answer(CommandParser.FALLBACK), parse("screen_question", """{"question":"  "}"""))
     }
 
     @Test fun acceptsNumericStrings() {

@@ -13,6 +13,10 @@ data class IncomingMessage(
     val postedAt: Long,
     val canReply: Boolean,
     val isConversation: Boolean,
+    /** Chat or group title ("Family"); blank when the app doesn't provide one. */
+    val conversation: String = "",
+    /** Recent lines as "Sender: text", oldest first, for summaries. Empty when the app only shows one line. */
+    val transcript: List<String> = emptyList(),
 )
 
 /** Choosing which notifications to read out or reply to. Pure so it can be unit-tested. */
@@ -27,7 +31,7 @@ object MessageSelector {
         limit: Int = 5,
     ): List<IncomingMessage> = messages
         .filter { appName.isBlank() || matchesApp(it, appName) }
-        .filter { contactName.isBlank() || matchesSender(it.sender, contactName) }
+        .filter { contactName.isBlank() || matchesSender(it.sender, contactName) || matchesSender(it.conversation, contactName) }
         .sortedWith(compareByDescending<IncomingMessage> { it.isConversation }.thenByDescending { it.postedAt })
         .take(limit)
 

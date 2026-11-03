@@ -3,10 +3,39 @@ import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { ProviderError, isMissingSecret } from './providers/errors.js';
+import { SCREEN_PROMPT, SUMMARY_PROMPT, buildScreenMessage, buildSummaryMessage } from './prompt.js';
 
 const InterpretBody = z.object({
   text: z.string().trim().min(1, 'text is required').max(500),
   contacts: z.array(z.string().trim().min(1).max(100)).max(2000).optional(),
+  now: z.string().max(64).optional(),
+  locale: z.string().max(20).optional(),
+});
+
+// A 1280px JPEG screenshot is ~150-400 KB as base64; leave headroom for dense screens.
+const MAX_IMAGE_BASE64 = 3_000_000;
+
+const ScreenBody = z.object({
+  question: z.string().trim().min(1, 'question is required').max(300),
+  image: z.string().min(1, 'image is required').max(MAX_IMAGE_BASE64).regex(/^[A-Za-z0-9+/]+=*$/, 'image must be base64'),
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).default('image/jpeg'),
+  locale: z.string().max(20).optional(),
+});
+
+const SummaryBody = z.object({
+  question: z.string().trim().max(300).default(''),
+  messages: z
+    .array(
+      z.object({
+        app: z.string().trim().max(50).default(''),
+        chat: z.string().trim().max(100).default(''),
+        sender: z.string().trim().max(100).default(''),
+        text: z.string().trim().min(1).max(4000),
+        time: z.string().max(32).optional(),
+      }),
+    )
+    .min(1, 'messages is required')
+    .max(60),
   now: z.string().max(64).optional(),
   locale: z.string().max(20).optional(),
 });
@@ -33,7 +62,6 @@ function safeEqual(a, b) {
 export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, logger = console }) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '64kb' }));
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, provider: provider.name, model: provider.model, configured: provider.configured });
@@ -57,38 +85,63 @@ export function createApp({ provider, sharedSecret, rateLimitPerMinute = 30, log
     handler: (_req, res) => res.status(429).json({ error: 'rate_limited', message: MESSAGES.local_rate_limited }),
   });
 
-  app.post('/interpret', requireSecret, limiter, async (req, res) => {
-    const parsed = InterpretBody.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        message: MESSAGES.invalid_request,
-        details: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`),
-      });
-    }
+  /** Validates the body with [schema], runs [work] and maps provider failures to friendly spoken errors. */
+  const route = (path, bodyLimit, schema, work) =>
+    app.post(path, requireSecret, limiter, express.json({ limit: bodyLimit }), async (req, res) => {
+      const parsed = schema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          message: MESSAGES.invalid_request,
+          details: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`),
+        });
+      }
+      const started = Date.now();
+      try {
+        const { result, log } = await work(parsed.data);
+        const latencyMs = Date.now() - started;
+        logger.info(`[${path.slice(1)}] ${provider.name} ${latencyMs}ms ${log}`);
+        res.json({ ...result, provider: provider.name, model: provider.model, latencyMs });
+      } catch (err) {
+        const kind = err instanceof ProviderError ? err.kind : 'upstream';
+        logger.error(`[${path.slice(1)}] ${kind}: ${err.message}`);
+        if (kind === 'rate_limited' && err.retryAfterSeconds) res.set('Retry-After', String(err.retryAfterSeconds));
+        const status = { rate_limited: 429, not_configured: 503, upstream: 502 }[kind];
+        res.status(status).json({ error: kind, message: MESSAGES[kind] });
+      }
+    });
 
-    const started = Date.now();
-    try {
-      const call = await provider.interpret(parsed.data);
-      const latencyMs = Date.now() - started;
-      logger.info(`[interpret] ${provider.name} ${latencyMs}ms "${parsed.data.text}" -> ${call.tool}`);
-      res.json({ ...call, provider: provider.name, model: provider.model, latencyMs });
-    } catch (err) {
-      const kind = err instanceof ProviderError ? err.kind : 'upstream';
-      logger.error(`[interpret] ${kind}: ${err.message}`);
-      if (kind === 'rate_limited' && err.retryAfterSeconds) res.set('Retry-After', String(err.retryAfterSeconds));
-      const status = { rate_limited: 429, not_configured: 503, upstream: 502 }[kind];
-      res.status(status).json({ error: kind, message: MESSAGES[kind] });
-    }
+  route('/interpret', '64kb', InterpretBody, async (body) => {
+    const call = await provider.interpret(body);
+    return { result: call, log: `"${body.text}" -> ${call.tool}` };
+  });
+
+  // Screenshots are never logged or stored; only the question is.
+  route('/screen', '4mb', ScreenBody, async ({ question, image, mimeType }) => {
+    const text = await provider.generate({
+      system: SCREEN_PROMPT,
+      text: buildScreenMessage({ question }),
+      image: { mimeType, data: image },
+    });
+    return { result: { text }, log: `"${question}" (${Math.round((image.length * 3) / 4 / 1024)} KB image)` };
+  });
+
+  // Message contents are never logged; only how many were summarised.
+  route('/summarize', '256kb', SummaryBody, async ({ question, messages, now }) => {
+    const text = await provider.generate({
+      system: SUMMARY_PROMPT,
+      text: buildSummaryMessage({ question, messages, now }),
+    });
+    return { result: { text }, log: `${messages.length} notifications` };
   });
 
   app.use((_req, res) => res.status(404).json({ error: 'not_found', message: 'Not found' }));
 
-  // Express 5 forwards JSON parse errors here.
+  // Express 5 forwards JSON parse errors (and oversized bodies) here.
   app.use((err, _req, res, _next) => {
     const status = err.status ?? 500;
     if (status >= 500) logger.error(err);
-    res.status(status).json({ error: status === 400 ? 'invalid_request' : 'server_error', message: MESSAGES.invalid_request });
+    res.status(status).json({ error: status < 500 ? 'invalid_request' : 'server_error', message: MESSAGES.invalid_request });
   });
 
   return app;

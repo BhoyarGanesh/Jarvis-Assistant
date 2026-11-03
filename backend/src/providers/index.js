@@ -10,6 +10,8 @@ import { MockProvider } from './mock.js';
  * @property {string} model
  * @property {boolean} configured
  * @property {(req: InterpretRequest) => Promise<ToolCall>} interpret
+ * @property {(req: GenerateRequest) => Promise<string>} generate Spoken free-form reply.
+ * @typedef {{ system: string, text: string, image?: { mimeType: string, data: string } }} GenerateRequest
  */
 
 /** @returns {LLMProvider} */

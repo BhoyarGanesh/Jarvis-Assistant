@@ -21,6 +21,10 @@ data class AppSettings(
     val startOnBoot: Boolean = false,
     val shareContactNames: Boolean = false,
     val onboardingComplete: Boolean = false,
+    /** Say who is calling and take "answer" / "reject" / "tell him ..." by voice. */
+    val announceCalls: Boolean = false,
+    /** Keep a screenshot in memory when the wake word fires, for "what's on my screen?". */
+    val screenAwareness: Boolean = true,
 ) {
     val isHindi: Boolean get() = languageTag.startsWith("hi")
     val backendConfigured: Boolean get() = backendUrl.isNotBlank() && sharedSecret.isNotBlank()
@@ -89,6 +93,15 @@ data class ActionOutcome(
 interface ActionExecutor {
     /** [contact] is the resolved contact for call/message commands, null otherwise. */
     suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome
+}
+
+/** Controls the currently ringing call. */
+interface CallControl {
+    fun answer(): Boolean
+    fun reject(): Boolean
+    /** Mutes the ringtone so Jarvis can be heard and can hear the reply. */
+    fun silenceRinger()
+    fun restoreRinger()
 }
 
 data class ActionLogEntry(

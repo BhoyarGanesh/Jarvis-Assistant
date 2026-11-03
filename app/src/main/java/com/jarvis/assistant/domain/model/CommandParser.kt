@@ -47,6 +47,13 @@ object CommandParser {
             "play_music" -> nonBlank("query")?.let(AssistantCommand::PlayMusic)
             "read_notifications" -> AssistantCommand.ReadNotifications(str("app_name").orEmpty(), str("contact_name").orEmpty())
             "reply_message" -> nonBlank("message")?.let { AssistantCommand.ReplyMessage(str("contact_name").orEmpty(), it) }
+            "screen_question" -> nonBlank("question")?.let(AssistantCommand::ScreenQuestion)
+            "summarize_messages" -> AssistantCommand.SummarizeMessages(
+                str("app_name").orEmpty(),
+                str("contact_name").orEmpty(),
+                str("question").orEmpty(),
+            )
+            "find_phone" -> AssistantCommand.FindPhone
             "answer" -> nonBlank("text")?.let(AssistantCommand::Answer)
             else -> null
         }

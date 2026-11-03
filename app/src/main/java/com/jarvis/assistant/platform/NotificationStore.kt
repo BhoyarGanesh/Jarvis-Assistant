@@ -14,7 +14,8 @@ import javax.inject.Singleton
 
 /**
  * The phone's currently visible notifications, as reported by [com.jarvis.assistant.service.JarvisNotificationListener].
- * Kept in memory only: nothing is written to disk or sent to the backend.
+ * Kept in memory only: nothing is written to disk, and message text reaches the backend only when
+ * the user asks for a summary ("what did I miss?").
  */
 @Singleton
 class NotificationStore @Inject constructor(

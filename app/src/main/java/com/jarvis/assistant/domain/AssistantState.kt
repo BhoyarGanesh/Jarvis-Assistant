@@ -3,7 +3,7 @@ package com.jarvis.assistant.domain
 /** Phases the orb animates between. */
 enum class AssistantPhase { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
 
-enum class ActionKind { CALL, WHATSAPP, SMS, ALARM, TIMER, APP, SEARCH, MUSIC, MESSAGES, ANSWER, INFO }
+enum class ActionKind { CALL, WHATSAPP, SMS, ALARM, TIMER, APP, SEARCH, MUSIC, MESSAGES, SCREEN, FIND_PHONE, ANSWER, INFO }
 
 data class ActionCard(
     val id: Long,

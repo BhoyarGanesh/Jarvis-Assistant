@@ -11,6 +11,7 @@ import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.platform.AndroidActionExecutor
+import com.jarvis.assistant.platform.AndroidCallControl
 import com.jarvis.assistant.voice.AndroidSpeechInput
 import com.jarvis.assistant.voice.AndroidSpeechOutput
 import com.jarvis.assistant.voice.ToneChime
@@ -74,6 +75,7 @@ object AppModule {
         chime: ToneChime,
         wakeWord: WakeWordEngine,
         executor: AndroidActionExecutor,
+        calls: AndroidCallControl,
         history: HistoryRepository,
         @ApplicationScope scope: CoroutineScope,
     ): AssistantOrchestrator = AssistantOrchestrator(
@@ -85,6 +87,7 @@ object AppModule {
         chime = chime,
         wakeWord = wakeWord,
         executor = executor,
+        calls = calls,
         actionLog = history,
         scope = scope,
     )

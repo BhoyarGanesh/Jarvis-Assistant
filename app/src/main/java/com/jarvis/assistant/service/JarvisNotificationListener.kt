@@ -48,17 +48,25 @@ class JarvisNotificationListener : NotificationListenerService() {
             action.remoteInputs?.any { it.allowFreeFormInput } == true
         }
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
+        var conversation = ""
+        var transcript = emptyList<String>()
         val (sender, text) = if (style != null && style.messages.isNotEmpty()) {
             val recent = style.messages.takeLast(3)
             val person = recent.last().person?.name?.toString().orEmpty()
             val title = style.conversationTitle?.toString()
             val who = if (style.isGroupConversation && title != null) "$person in $title" else person.ifBlank { title.orEmpty() }
+            conversation = title ?: person
+            transcript = style.messages.takeLast(MAX_TRANSCRIPT).mapNotNull { m ->
+                val line = m.text?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                m.person?.name?.toString()?.takeIf { it.isNotBlank() }?.let { "$it: $line" } ?: line
+            }
             who to recent.mapNotNull { it.text?.toString() }.joinToString(". ")
         } else {
             val extras = n.extras
             val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
             val body = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))
                 ?.toString().orEmpty()
+            conversation = title
             title to body
         }
         if (text.isBlank()) return
@@ -73,6 +81,8 @@ class JarvisNotificationListener : NotificationListenerService() {
                 postedAt = sbn.postTime,
                 canReply = reply != null,
                 isConversation = style != null || n.category == Notification.CATEGORY_MESSAGE || reply != null,
+                conversation = conversation,
+                transcript = transcript,
             ),
             reply,
         )
@@ -85,6 +95,8 @@ class JarvisNotificationListener : NotificationListenerService() {
     }
 
     private companion object {
+        /** Lines kept per chat for "what did I miss?"; apps usually show at most this many anyway. */
+        const val MAX_TRANSCRIPT = 25
         val IGNORED_CATEGORIES = setOf(
             Notification.CATEGORY_SERVICE,
             Notification.CATEGORY_PROGRESS,

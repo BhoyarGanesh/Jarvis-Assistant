@@ -23,6 +23,7 @@ import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.domain.wakeword.WakeWordConfig
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
+import com.jarvis.assistant.platform.ScreenCapture
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
@@ -45,6 +46,7 @@ class JarvisListeningService : LifecycleService() {
     @Inject lateinit var engine: WakeWordEngine
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var orchestrator: AssistantOrchestrator
+    @Inject lateinit var screen: ScreenCapture
 
     private var observing = false
 
@@ -100,6 +102,8 @@ class JarvisListeningService : LifecycleService() {
             engine.detections.collect {
                 if (orchestrator.isBusy) return@collect
                 orchestrator.trigger()
+                // Grab the screen before the Jarvis UI covers it, for "what's on my screen?".
+                if (settings.current().screenAwareness) screen.capture()
                 showAssistantUi()
             }
         }

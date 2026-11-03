@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Jarvis</string>
-    <string name="accessibility_label">Jarvis WhatsApp auto-send</string>
-    <string name="accessibility_description">Lets Jarvis tap the Send button in WhatsApp after it opens a chat with your message prefilled. Jarvis only acts inside WhatsApp, only right after you asked it to send a message, and never reads your chats.</string>
+    <string name="accessibility_label">Jarvis WhatsApp auto-send &amp; screen reading</string>
+    <string name="accessibility_description">Lets Jarvis tap the Send button in WhatsApp after it opens a chat with your message prefilled; it only acts inside WhatsApp, right after you asked it to send a message, and never reads your chats. It also lets Jarvis answer “Jarvis, what is on my screen?”: when you say “Jarvis”, a screenshot is kept in memory for up to a minute and is sent to the AI behind your Jarvis backend only if your question is about the screen. You can turn this off under Settings, Screen awareness.</string>
     <string name="notification_listener_label">Jarvis message reader</string>
     <string name="tile_label">Ask Jarvis</string>
     <string name="widget_label">Jarvis</string>

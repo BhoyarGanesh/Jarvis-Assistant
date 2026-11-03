@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.jarvis.assistant.platform.ScreenCapture
 import com.jarvis.assistant.platform.WhatsAppSendCoordinator
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -15,11 +16,14 @@ import javax.inject.Inject
  *
  * Lookup order: known view ids -> content description "Send" (several languages) -> any clickable
  * ImageButton at the bottom of the conversation whose description contains "send".
+ *
+ * It also lends [ScreenCapture] its screenshot ability for "Jarvis, what's on my screen?".
  */
 @AndroidEntryPoint
 class WhatsAppAccessibilityService : AccessibilityService() {
 
     @Inject lateinit var coordinator: WhatsAppSendCoordinator
+    @Inject lateinit var screen: ScreenCapture
 
     private val handler = Handler(Looper.getMainLooper())
     private val retry = Runnable { tryClickSend() }
@@ -90,6 +94,7 @@ class WhatsAppAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        screen.attach(this)
         // The system rebinds this service after Jarvis is killed, so use it to resume listening.
         JarvisListeningService.ensureRunning(this)
     }
@@ -100,6 +105,7 @@ class WhatsAppAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(retry)
+        screen.detach(this)
         super.onDestroy()
     }
 
