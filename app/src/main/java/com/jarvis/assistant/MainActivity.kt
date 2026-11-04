@@ -129,7 +129,8 @@ class MainActivity : ComponentActivity() {
                 intent.action = null
             }
             // Debug builds only: lets `adb shell am start` fill in the backend so secrets needn't be typed.
-            // Debug builds only: `adb shell am start ... --es text "remind me in 2 minutes to stretch"` runs it as if spoken.
+            // Debug builds only: `adb shell "am start ... --es text 'remind me in 2 minutes to stretch'"` runs it as if spoken
+            // (quote the whole command: adb joins its arguments, so an unquoted sentence arrives as one word).
             ACTION_SAY -> if (BuildConfig.DEBUG) {
                 intent.getStringExtra(EXTRA_TEXT)?.let(orchestrator::triggerText)
                 intent.action = null
