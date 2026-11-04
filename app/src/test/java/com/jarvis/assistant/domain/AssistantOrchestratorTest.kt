@@ -4,6 +4,13 @@ import com.jarvis.assistant.domain.calls.IncomingCall
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.conversation.FollowUp
 import com.jarvis.assistant.domain.conversation.Turn
+import com.jarvis.assistant.domain.live.LiveEvent
+import com.jarvis.assistant.domain.live.LiveRules
+import com.jarvis.assistant.domain.live.LiveSession
+import com.jarvis.assistant.domain.live.LiveStart
+import com.jarvis.assistant.domain.live.LiveStartRequest
+import com.jarvis.assistant.domain.live.LiveVoice
+import kotlinx.coroutines.channels.Channel
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +50,7 @@ class AssistantOrchestratorTest {
         val contactList: List<Contact>,
         val contactsPermission: Boolean = true,
         speech: List<suspend () -> SpeechResult>,
+        liveVoice: LiveVoice? = null,
     ) {
         val spoken = mutableListOf<String>()
         val executed = mutableListOf<Pair<AssistantCommand, Contact?>>()
@@ -54,6 +62,7 @@ class AssistantOrchestratorTest {
         val interpreted = mutableListOf<Pair<String, List<Turn>>>()
         val listenTimeouts = mutableListOf<Long>()
         var chimes = 0
+        var onExecute: () -> Unit = {}
         /** "listen" and "speak" in the order they happened. */
         val events = mutableListOf<String>()
         var pauses = 0
@@ -123,6 +132,7 @@ class AssistantOrchestratorTest {
             },
             executor = object : ActionExecutor {
                 override suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome {
+                    onExecute()
                     executed += command to contact
                     return ActionOutcome(ActionStatus.SUCCESS, if (contact != null) phrases.calling(contact.displayName) else "Done")
                 }
@@ -145,6 +155,7 @@ class AssistantOrchestratorTest {
             },
             scope = scope,
             clock = { 1_000L },
+            liveVoice = liveVoice,
         )
     }
 
@@ -726,5 +737,285 @@ class AssistantOrchestratorTest {
         advanceUntilIdle()
         assertEquals(1, h.interpretCalls)
         assertTrue(h.executed.isEmpty())
+    }
+
+    // --- Live mode ---
+
+    private class FakeLiveSession : LiveSession {
+        override val events = Channel<LiveEvent>(Channel.UNLIMITED)
+        val toolResults = mutableListOf<Pair<String, String>>()
+        val texts = mutableListOf<String>()
+        var closed = false
+
+        fun emit(vararg e: LiveEvent) = e.forEach { events.trySend(it) }
+
+        override fun sendToolResult(id: String, name: String, result: String) {
+            toolResults += id to result
+        }
+
+        override fun sendText(text: String) {
+            texts += text
+        }
+
+        override fun close() {
+            if (closed) return
+            closed = true
+            events.trySend(LiveEvent.Ended())
+            events.close()
+        }
+    }
+
+    private class FakeLive(private val unavailable: LiveStart.Unavailable? = null) : LiveVoice {
+        val session = FakeLiveSession()
+        var starts = 0
+        override suspend fun start(request: LiveStartRequest): LiveStart {
+            starts++
+            return unavailable ?: LiveStart.Started(session)
+        }
+    }
+
+    private val liveSettings = baseSettings.copy(liveMode = true)
+
+    private fun TestScope.liveHarness(
+        live: FakeLive = FakeLive(),
+        settings: AppSettings = liveSettings,
+        contacts: List<Contact> = listOf(king, junior),
+        contactsPermission: Boolean = true,
+    ) = Harness(this, settings, InterpretResult.Success(AssistantCommand.CallContact("King")), contacts, contactsPermission,
+        listOf({ SpeechResult.Text("call king") }), live)
+
+    @Test fun liveRunsToolsAndEndsAfterSilence() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        assertTrue(h.orchestrator.state.value.live)
+        assertEquals(AssistantPhase.LISTENING, h.orchestrator.state.value.phase)
+
+        live.session.emit(LiveEvent.Heard("set a timer "), LiveEvent.Heard("for five minutes"), LiveEvent.ToolCall("1", "set_timer", AssistantCommand.SetTimer(300, "")))
+        runCurrent()
+        assertEquals(listOf(AssistantCommand.SetTimer(300, "") to null), h.executed)
+        assertEquals(listOf("1" to "success: Done"), live.session.toolResults)
+        assertEquals("set a timer for five minutes", h.logged.single().transcript)
+        assertEquals("set a timer for five minutes", h.orchestrator.state.value.transcript)
+
+        live.session.emit(LiveEvent.Said("Done, "), LiveEvent.Said("five minutes."), LiveEvent.Speaking(true))
+        runCurrent()
+        assertEquals(AssistantPhase.SPEAKING, h.orchestrator.state.value.phase)
+        assertEquals("Done, five minutes.", h.orchestrator.state.value.reply)
+        live.session.emit(LiveEvent.Speaking(false), LiveEvent.TurnComplete)
+        runCurrent()
+        assertEquals(AssistantPhase.LISTENING, h.orchestrator.state.value.phase)
+        assertFalse(live.session.closed)
+
+        advanceTimeBy(LiveRules.IDLE_MS + 10)
+        assertTrue(live.session.closed)
+        assertFalse(h.orchestrator.state.value.live)
+        assertEquals(AssistantPhase.IDLE, h.orchestrator.state.value.phase)
+        assertEquals(1, h.resumes)
+        assertEquals("the normal pipeline never ran", 0, h.interpretCalls)
+        assertTrue(h.listenTimeouts.isEmpty())
+    }
+
+    @Test fun liveRunsARepeatedToolCallOnce() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(
+            LiveEvent.ToolCall("1", "set_timer", AssistantCommand.SetTimer(300, "")),
+            LiveEvent.ToolCall("2", "set_timer", AssistantCommand.SetTimer(300, "")),
+        )
+        runCurrent()
+        assertEquals(1, h.executed.size)
+        assertTrue(live.session.toolResults[1].second.startsWith("already done"))
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun liveAsksWhichContactAndTakesATap() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live, contacts = listOf(kingKumar, kingSingh))
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "call_contact", AssistantCommand.CallContact("King")))
+        runCurrent()
+        val result = live.session.toolResults.single().second
+        assertTrue(result, result.startsWith("needs a choice") && result.contains("King Kumar") && result.contains("King Singh"))
+        assertEquals(listOf("King Kumar", "King Singh"), h.orchestrator.state.value.disambiguation?.options)
+        assertTrue(h.executed.isEmpty())
+
+        h.orchestrator.chooseOption(1)
+        assertEquals(listOf("I mean King Singh."), live.session.texts)
+        assertNull(h.orchestrator.state.value.disambiguation)
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun liveDraftIsReadBackAndSentOnlyWhenApproved() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live, settings = liveSettings.copy(confirmationCountdownEnabled = true, confirmationSeconds = 3))
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "send_whatsapp", draft))
+        runCurrent()
+        assertTrue(h.executed.isEmpty())
+        assertTrue(live.session.toolResults.single().second.contains(draft.message))
+        assertEquals(true, h.orchestrator.state.value.confirmation?.awaitingYes)
+
+        // Tapping Send asks her to go ahead; she then sends the same message for real.
+        h.orchestrator.confirmNow()
+        assertEquals(listOf("Yes, send it."), live.session.texts)
+        live.session.emit(LiveEvent.ToolCall("2", "send_whatsapp", draft.copy(composed = false)))
+        runCurrent()
+        assertEquals("no countdown for an approved draft", listOf(draft.copy(composed = false) to junior), h.executed)
+        assertNull(h.orchestrator.state.value.confirmation)
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun liveDraftDontSendKeepsTheConversation() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "send_whatsapp", draft))
+        runCurrent()
+        h.orchestrator.cancel()
+        runCurrent()
+        assertEquals(listOf("No, don't send it."), live.session.texts)
+        assertNull(h.orchestrator.state.value.confirmation)
+        assertFalse(live.session.closed)
+        assertTrue(h.executed.isEmpty())
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+        assertTrue(live.session.closed)
+    }
+
+    @Test fun liveCountdownCanBeCancelledByVoice() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live, settings = liveSettings.copy(confirmationCountdownEnabled = true, confirmationSeconds = 3))
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "send_sms", AssistantCommand.SendSms("King", "hi")))
+        runCurrent()
+        assertEquals(3, h.orchestrator.state.value.confirmation?.secondsLeft)
+        live.session.emit(LiveEvent.Heard("no, stop"))
+        runCurrent()
+        assertTrue(h.executed.isEmpty())
+        assertTrue(live.session.toolResults.single().second.startsWith("cancelled"))
+        assertEquals(ActionStatus.CANCELLED, h.logged.single().status)
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun liveHangsUpBeforePlacingACall() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        var closedWhenDialing = false
+        h.onExecute = { closedWhenDialing = live.session.closed }
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "call_contact", AssistantCommand.CallContact("King")))
+        advanceUntilIdle()
+        assertTrue(closedWhenDialing)
+        assertEquals(listOf(AssistantCommand.CallContact("King") to king), h.executed)
+        assertEquals(ActionStatus.SUCCESS, h.logged.single().status)
+        assertFalse(h.orchestrator.state.value.live)
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun liveThanksEndsAfterHerReply() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.Heard("thanks, that's all"), LiveEvent.Speaking(true), LiveEvent.Said("You're welcome!"), LiveEvent.TurnComplete)
+        runCurrent()
+        assertFalse("she finishes her sentence first", live.session.closed)
+        live.session.emit(LiveEvent.Speaking(false))
+        runCurrent()
+        assertTrue(live.session.closed)
+        assertFalse(h.orchestrator.state.value.live)
+    }
+
+    @Test fun liveTapEndsTheConversation() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+        assertTrue(live.session.closed)
+        assertEquals(AssistantPhase.IDLE, h.orchestrator.state.value.phase)
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun liveUnavailableFallsBackToTheNormalPipeline() = runTest {
+        val h = liveHarness(FakeLive(LiveStart.Unavailable("backend has no /live")))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(1, h.interpretCalls)
+        assertEquals(listOf(AssistantCommand.CallContact("King") to king), h.executed)
+        assertFalse(h.orchestrator.state.value.live)
+    }
+
+    @Test fun liveQuotaCoolsDownBeforeTryingAgain() = runTest {
+        val live = FakeLive(LiveStart.Unavailable("quota", quota = true))
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(1, live.starts)
+        assertEquals("both runs used the normal pipeline", 2, h.listenTimeouts.size)
+    }
+
+    @Test fun liveDroppedConnectionIsSpoken() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.Ended("The live connection dropped. Say Jarvis to start again."))
+        runCurrent()
+        assertEquals(listOf("The live connection dropped. Say Jarvis to start again."), h.spoken)
+        assertEquals(AssistantPhase.ERROR, h.orchestrator.state.value.phase)
+        advanceUntilIdle()
+        assertTrue(live.session.closed)
+    }
+
+    @Test fun liveReportsMissingContactsPermission() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live, contactsPermission = false)
+        h.orchestrator.trigger()
+        runCurrent()
+        live.session.emit(LiveEvent.ToolCall("1", "call_contact", AssistantCommand.CallContact("King")))
+        runCurrent()
+        assertTrue(live.session.toolResults.single().second.startsWith("failed"))
+        assertEquals(ActionStatus.FAILED, h.orchestrator.state.value.cards.first().status)
+        assertTrue(h.executed.isEmpty())
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun typedTextGoesToTheLiveConversation() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live)
+        h.orchestrator.triggerText("what's the weather")
+        runCurrent()
+        h.orchestrator.triggerText("and tomorrow?")
+        assertEquals(listOf("what's the weather", "and tomorrow?"), live.session.texts)
+        assertEquals(0, h.interpretCalls)
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
+
+    @Test fun liveModeOffNeverConnects() = runTest {
+        val live = FakeLive()
+        val h = liveHarness(live, settings = baseSettings)
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(0, live.starts)
+        assertEquals(1, h.interpretCalls)
     }
 }

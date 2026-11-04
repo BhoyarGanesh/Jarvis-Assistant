@@ -20,6 +20,10 @@ export const config = {
     .map((m) => m.trim())
     .filter(Boolean),
   ttsVoice: env.GEMINI_TTS_VOICE || 'Despina',
+  liveModels: (env.GEMINI_LIVE_MODELS ?? 'gemini-3.8-live,gemini-3.1-flash-live-preview')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean),
   sharedSecret: env.APP_SHARED_SECRET,
   rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 30),
 };

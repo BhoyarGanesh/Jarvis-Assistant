@@ -166,6 +166,15 @@ fun SettingsScreen(
                     viewModel::setFollowUpMode,
                 )
                 Divider()
+                SettingSwitch(
+                    "Live mode",
+                    "Talk with her like on a phone call and interrupt her any time: she stops at once and listens. " +
+                        "Uses Gemini Live through your backend. When it is unavailable or the free quota runs out, " +
+                        "Jarvis uses the normal mode instead.",
+                    settings.liveMode,
+                    viewModel::setLiveMode,
+                )
+                Divider()
                 Text("Her voice", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     VOICES.forEach { (name, label) ->

@@ -130,6 +130,9 @@ class Phrases(private val hindi: Boolean) {
     fun cantTextUnknownCaller() =
         pick("I declined it, but I don't know their number, so I couldn't text them.", "कॉल काट दिया, पर नंबर नहीं पता इसलिए मैसेज नहीं भेज पाया")
 
+    fun liveUnavailable() =
+        pick("Live mode isn't available right now, so I'm using normal mode.", "लाइव मोड अभी उपलब्ध नहीं है, सामान्य मोड चल रहा है")
+
     fun backendNotSet() =
         pick("Please set the backend URL and shared secret in settings first.", "पहले सेटिंग्स में बैकएंड सेट कीजिए")
 

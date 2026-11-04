@@ -46,6 +46,7 @@ class SettingsRepository @Inject constructor(
         val showAvatar = booleanPreferencesKey("show_avatar")
         val rainEffect = booleanPreferencesKey("rain_effect")
         val followUp = booleanPreferencesKey("follow_up_mode")
+        val liveMode = booleanPreferencesKey("live_mode")
     }
 
     override val settings: Flow<AppSettings> = store.data.map { p ->
@@ -69,6 +70,7 @@ class SettingsRepository @Inject constructor(
             showAvatar = p[Keys.showAvatar] ?: d.showAvatar,
             rainEffect = p[Keys.rainEffect] ?: d.rainEffect,
             followUpMode = p[Keys.followUp] ?: d.followUpMode,
+            liveMode = p[Keys.liveMode] ?: d.liveMode,
         )
     }
 
@@ -92,4 +94,5 @@ class SettingsRepository @Inject constructor(
     suspend fun setShowAvatar(value: Boolean) = store.edit { it[Keys.showAvatar] = value }
     suspend fun setRainEffect(value: Boolean) = store.edit { it[Keys.rainEffect] = value }
     suspend fun setFollowUpMode(value: Boolean) = store.edit { it[Keys.followUp] = value }
+    suspend fun setLiveMode(value: Boolean) = store.edit { it[Keys.liveMode] = value }
 }

@@ -137,10 +137,13 @@ class MainActivity : ComponentActivity() {
             ACTION_CONFIGURE -> if (BuildConfig.DEBUG) {
                 val url = intent.getStringExtra(EXTRA_BACKEND_URL)
                 val secret = intent.getStringExtra(EXTRA_SHARED_SECRET)
+                // Optional: --ez live_mode true|false
+                val live = if (intent.hasExtra(EXTRA_LIVE_MODE)) intent.getBooleanExtra(EXTRA_LIVE_MODE, false) else null
                 intent.action = null
                 lifecycleScope.launch {
                     url?.let { settingsRepository.setBackendUrl(it) }
                     secret?.let { settingsRepository.setSharedSecret(it) }
+                    live?.let { settingsRepository.setLiveMode(it) }
                     Toast.makeText(this@MainActivity, "Backend settings updated", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -155,6 +158,7 @@ class MainActivity : ComponentActivity() {
         private const val EXTRA_TEXT = "text"
         private const val EXTRA_BACKEND_URL = "backend_url"
         private const val EXTRA_SHARED_SECRET = "shared_secret"
+        private const val EXTRA_LIVE_MODE = "live_mode"
 
         /** Opens Jarvis from the find-my-phone notification and silences it. */
         fun stopRingingIntent(context: Context): Intent =

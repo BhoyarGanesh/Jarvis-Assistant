@@ -26,7 +26,7 @@ The app never talks to an LLM directly. API keys live only in `backend/.env` on 
 | `app/` | Android app (a self-contained Gradle project: `app/gradlew`) |
 | `app/src/main/java/com/jarvis/assistant/domain` | Pure Kotlin: orchestrator state machine, contact/app matching, command parsing, wake word logic |
 | `app/src/main/java/com/jarvis/assistant/{data,platform,voice,service,ui}` | Room/DataStore/backend client, Android executors, Vosk/STT/TTS, services, Compose UI |
-| `backend/` | Node.js + Express backend (`/interpret`, `/health`) |
+| `backend/` | Node.js + Express backend (`/interpret`, `/screen`, `/summarize`, `/speak`, `/live`, `/health`) |
 | `scripts/download_vosk_model.{ps1,sh}` | Downloads the wake word model into the app's assets |
 
 ## Prerequisites
@@ -57,6 +57,8 @@ LLM_PROVIDER=gemini
 GEMINI_API_KEY=AIza...your key...
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-3.8-flash
+# Optional, Live mode models in order of preference (these are the defaults):
+# GEMINI_LIVE_MODELS=gemini-3.8-live,gemini-3.1-flash-live-preview
 APP_SHARED_SECRET=your-long-random-secret
 ```
 
@@ -124,6 +126,16 @@ Two more endpoints return a spoken reply as `200 {"text": "..."}`, with the same
   phone then uses its own voice. Set the models with `GEMINI_TTS_MODELS` and the default voice with
   `GEMINI_TTS_VOICE`. The free tier allows about 3 voice replies per minute per model, so the backend
   rotates through several models and skips any that are rate limited until their cooldown ends.
+
+`GET /live` (WebSocket, same `X-Jarvis-Secret` header) is Live mode: a two-way voice stream to Gemini Live.
+The phone first sends `{"type":"start","voice":"Despina","now":"...","locale":"en-US","contacts":[...]}` and waits for
+`{"type":"ready","model":"gemini-3.8-live","inputRate":16000,"outputRate":24000}`. Then it streams the microphone as binary
+16 kHz 16-bit mono PCM and gets her voice back as binary 24 kHz PCM, plus small JSON events: `heard` / `said` (transcript
+pieces), `interrupted` (the user talked over her), `turnComplete`, `toolCall` `{id, tool, args}` (validated with the
+same zod schemas as `/interpret`), `toolCancelled`, `goAway` and `error` `{error, message}`. The phone answers tool calls
+with `{"type":"toolResult","id","name","result"}`, and can type with `{"type":"text","text"}`. The backend allows two
+sessions at once and ends a session after 10 minutes. It tries each model in `GEMINI_LIVE_MODELS` in turn and skips one
+that reports its quota used up for a minute. Audio and transcripts are never logged; only session length and tool names are.
 
 Errors are `{"error": "...", "message": "<friendly, speakable text>"}`:
 
@@ -242,9 +254,20 @@ wake word fires while another app is open.
   music, searches the web or rings to be found, since the phone then belongs to that. The microphone only opens
   once her reply has finished playing, so she doesn't hear herself. The countdown, "which one?" and the
   draft read-back work in follow-ups too. Turn it off under Settings → *Follow-up mode*.
+- **Live mode: talk over her.** Turn on Settings → *Live mode*. After "Jarvis" (or a tap) you're in a live
+  conversation, like a phone call: just talk, and start talking while she speaks to interrupt her. She stops
+  mid-word and answers the new request. The label shows *Live · listening…* or *Speaking · talk to interrupt*. She
+  can do everything the normal mode does (call, message, alarms, reminders, calendar, screen questions and so on):
+  Gemini Live asks the phone to run the same tools. "Which King?" is asked out loud, and you can also tap a name. A drafted
+  message is read back and sent only after you say yes or tap **Send**. The call/message countdown still runs, and
+  "no" or "stop" during it cancels. The conversation ends after 8 seconds of silence, after "thanks" / "that's all",
+  when you tap, or after a call, app, music, search or find-my-phone. If Live can't start (backend without `/live`,
+  no connection, free quota used up), Jarvis says nothing about it, shows *Live mode isn't available right now*, and runs
+  the normal mode. After a quota error it uses the normal mode for 5 minutes before trying Live again. The
+  microphone stream goes to your backend and on to Google only during a live conversation; nothing is recorded.
 - Every action is logged in **History** (clock icon). You can clear it there.
 - Settings has: wake word on/off, sensitivity and re-trigger delay, backend URL and secret, spoken replies,
-  follow-up mode, screen awareness, caller announcements, countdown, language (English, English (India), Hindi),
+  follow-up mode, Live mode, screen awareness, caller announcements, countdown, language (English, English (India), Hindi),
   start on boot, and sharing contact names.
 
 ## Known limitations
@@ -254,6 +277,15 @@ wake word fires while another app is open.
   Every spoken reply's text goes to your backend and Gemini to be voiced. Choose *Phone voice* to keep
   replies on the phone.
 
+- **Live mode.** Live audio runs as a voice call (Android's communication mode) on the loudspeaker, so the phone's
+  echo canceller can remove her voice from the microphone. Its volume is the *call* volume, not the media volume. How
+  well echo cancellation works depends on the phone. If she keeps interrupting herself, lower the call volume or use
+  earphones. Gemini Live's speech detection is set to low start sensitivity for the same reason, so a very quiet
+  "stop" may not cut her off. Lip sync uses the real audio, as in the normal mode. Live sessions are limited to
+  10 minutes by the backend (Gemini allows 15 for audio). On the free tier, Live is free of charge but rate limited.
+  Live models sometimes send the same tool call twice, so an identical call within 15 seconds runs only once. The
+  wake word is off during a live conversation, as in the normal mode. Live always uses Gemini, even if `LLM_PROVIDER`
+  is `anthropic`.
 - **Follow-up window.** The platform recognizer gives up after about 5 seconds of silence, so Jarvis restarts it
   once to cover the full 7 seconds. Background noise or a TV can still be heard as a follow-up; say "stop" or tap
   to end. Each follow-up is another `/interpret` call (and another AI voice reply), so long conversations use up
@@ -329,6 +361,18 @@ wake word fires while another app is open.
 - **Wake word sensitivity.** Sensitivity 0–1 maps to a minimum Vosk word confidence of 0.95–0.45. Above
   0.8, partial results also trigger, which is faster but noisier. A debounce window (default 2 s) blocks
   repeat triggers.
+- **Live mode goes through the backend.** The phone never holds the Gemini key: the backend opens the Gemini Live
+  WebSocket (`BidiGenerateContent`, API key on the server) and relays raw PCM both ways, so the phone streams binary audio
+  instead of base64 JSON. Ephemeral tokens would let the phone talk to Google directly and save the relay, but they add
+  token minting and expose the setup to the client; for a LAN backend the relay costs a few milliseconds. Tool calls are
+  validated on the backend with the same zod schemas, then run on the phone by the same executor, contact matcher and
+  countdown as the normal mode. "Which one?" and draft read-back are left to Gemini: the tool result tells her what is
+  needed and she asks out loud, which fits a live conversation better than a separate listening step. The conversation
+  logic (`runLive` in `AssistantOrchestrator`) depends only on the `LiveVoice` port in `domain/live/Live.kt` and is
+  unit-tested with a fake session. `GeminiLiveVoice` (WebSocket) and `LiveAudio.kt` (`AudioRecord` with
+  `VOICE_COMMUNICATION`, `AcousticEchoCanceler`, `NoiseSuppressor`, and an `AudioTrack` that is flushed on `interrupted` and
+  feeds `PcmMeter` / `MouthLevel`) are the Android side. The models were checked against Google's docs and this project's
+  key on 2026-11-04: `gemini-3.8-live` and `gemini-3.1-flash-live-preview` both accept the setup and are free-tier models.
 - **Follow-up context is text, not chat history.** The phone keeps the last 4 turns of the current conversation in
   memory (forgotten when it ends) and sends them as a short "earlier in this conversation" block, with each turn
   summarised as the tool, what was done and what Jarvis said. This works the same for Gemini, Claude and the mock

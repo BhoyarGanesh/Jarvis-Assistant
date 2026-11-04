@@ -211,7 +211,7 @@ fun HomeScreen(
                 )
             }
 
-            PhaseLabel(state.phase, state.followUp, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
+            PhaseLabel(state.phase, state.followUp, state.live, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
 
             Box(Modifier.heightIn(min = 96.dp).fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.TopCenter) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -345,12 +345,16 @@ private fun Banner(title: String, body: String, onClick: (() -> Unit)?) {
 }
 
 @Composable
-private fun PhaseLabel(phase: AssistantPhase, followUp: Boolean, wakeWordListening: Boolean) {
+private fun PhaseLabel(phase: AssistantPhase, followUp: Boolean, live: Boolean, wakeWordListening: Boolean) {
     val label = when (phase) {
         AssistantPhase.IDLE -> if (wakeWordListening) "Say “Jarvis” or tap to talk" else "Tap to talk"
-        AssistantPhase.LISTENING -> if (followUp) "Still listening…" else "Listening…"
-        AssistantPhase.THINKING -> "Thinking…"
-        AssistantPhase.SPEAKING -> "Speaking"
+        AssistantPhase.LISTENING -> when {
+            live -> "Live · listening…"
+            followUp -> "Still listening…"
+            else -> "Listening…"
+        }
+        AssistantPhase.THINKING -> if (live) "Connecting live…" else "Thinking…"
+        AssistantPhase.SPEAKING -> if (live) "Speaking · talk to interrupt" else "Speaking"
         AssistantPhase.ERROR -> "Something went wrong"
     }
     AnimatedContent(

@@ -35,6 +35,8 @@ data class AssistantUiState(
     val errorMessage: String? = null,
     /** Listening for a follow-up after a reply, without the wake word. */
     val followUp: Boolean = false,
+    /** In a Live mode conversation: she can be interrupted by talking. */
+    val live: Boolean = false,
 ) {
     val busy: Boolean get() = phase != AssistantPhase.IDLE && phase != AssistantPhase.ERROR
 }

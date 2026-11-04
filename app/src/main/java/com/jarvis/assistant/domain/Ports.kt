@@ -34,6 +34,8 @@ data class AppSettings(
     val rainEffect: Boolean = true,
     /** After a reply, keep listening a few seconds for a follow-up without the wake word. */
     val followUpMode: Boolean = true,
+    /** Live mode: a streaming conversation you can talk over (Gemini Live), with the normal pipeline as fallback. */
+    val liveMode: Boolean = false,
 ) {
     companion object {
         const val PHONE_VOICE = ""

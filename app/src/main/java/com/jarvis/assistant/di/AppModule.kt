@@ -16,6 +16,7 @@ import com.jarvis.assistant.platform.AndroidActionExecutor
 import com.jarvis.assistant.platform.AndroidCallControl
 import com.jarvis.assistant.voice.AndroidSpeechInput
 import com.jarvis.assistant.voice.CloudSpeechOutput
+import com.jarvis.assistant.voice.GeminiLiveVoice
 import com.jarvis.assistant.voice.ToneChime
 import com.jarvis.assistant.voice.VoskWakeWordEngine
 import dagger.Binds
@@ -84,6 +85,7 @@ object AppModule {
         executor: AndroidActionExecutor,
         calls: AndroidCallControl,
         history: HistoryRepository,
+        live: GeminiLiveVoice,
         @ApplicationScope scope: CoroutineScope,
     ): AssistantOrchestrator = AssistantOrchestrator(
         settingsSource = settings,
@@ -97,6 +99,7 @@ object AppModule {
         calls = calls,
         actionLog = history,
         scope = scope,
+        liveVoice = live,
     )
 }
 

@@ -9,6 +9,12 @@ import com.jarvis.assistant.domain.contacts.ContactMatch
 import com.jarvis.assistant.domain.contacts.ContactMatcher
 import com.jarvis.assistant.domain.conversation.ConversationHistory
 import com.jarvis.assistant.domain.conversation.FollowUp
+import com.jarvis.assistant.domain.live.LiveEvent
+import com.jarvis.assistant.domain.live.LiveRules
+import com.jarvis.assistant.domain.live.LiveSession
+import com.jarvis.assistant.domain.live.LiveStart
+import com.jarvis.assistant.domain.live.LiveStartRequest
+import com.jarvis.assistant.domain.live.LiveVoice
 import com.jarvis.assistant.domain.model.AssistantCommand
 import com.jarvis.assistant.domain.model.contactName
 import com.jarvis.assistant.domain.model.isComposed
@@ -20,6 +26,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -50,6 +57,7 @@ class AssistantOrchestrator(
     private val actionLog: ActionLog,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val liveVoice: LiveVoice? = null,
 ) {
     private val _state = MutableStateFlow(AssistantUiState())
     val state: StateFlow<AssistantUiState> = _state.asStateFlow()
@@ -72,6 +80,20 @@ class AssistantOrchestrator(
      */
     private data class TurnOutcome(val summary: String, val canFollowUp: Boolean = true, val revision: String? = null)
 
+    private var liveSession: LiveSession? = null
+    private var liveCooldownUntil = 0L
+    /** Contact names Live asked "which one?" about, for tapping an answer. */
+    private var liveChoices: List<String>? = null
+    /** A drafted message Live read back, waiting for the user to approve it. */
+    private var liveDraft: LiveDraft? = null
+    /** Tools run in this live conversation, to catch a repeated call: command -> (time, result). */
+    private val liveRecent = mutableMapOf<AssistantCommand, Pair<Long, String>>()
+
+    private data class LiveDraft(val tool: String, val contactId: Long?, val message: String?)
+
+    /** [text] goes back to Gemini; [ends] closes the conversation after her answer (a hand-over action). */
+    private data class LiveToolResult(val text: String, val ends: Boolean = false)
+
     val isBusy: Boolean get() = session?.isActive == true
 
     /** Starts listening for a command. Ignored while an interaction is already running. */
@@ -86,6 +108,10 @@ class AssistantOrchestrator(
      */
     fun triggerText(text: String) {
         if (text.isBlank()) return
+        liveSession?.let {
+            it.sendText(text)
+            return
+        }
         val waiting = followUpTyped
         if (waiting != null && waiting.isActive) {
             waiting.complete(text)
@@ -102,16 +128,43 @@ class AssistantOrchestrator(
             pending.complete(false)
             return
         }
+        val live = liveSession
+        if (live != null && liveDraft != null) {
+            liveDraft = null
+            _state.update { it.copy(confirmation = null) }
+            live.sendText("No, don't send it.")
+            return
+        }
+        if (live != null && liveChoices != null) {
+            liveChoices = null
+            _state.update { it.copy(disambiguation = null) }
+            live.sendText("Never mind, cancel that.")
+            return
+        }
         session?.cancel()
     }
 
     /** Skips the remaining countdown and runs the action now. */
     fun confirmNow() {
-        confirmDecision?.complete(true)
+        val pending = confirmDecision
+        if (pending != null) {
+            pending.complete(true)
+            return
+        }
+        // Tapping Send on a draft read back in Live mode.
+        if (liveDraft != null) liveSession?.sendText("Yes, send it.")
     }
 
     /** On-screen answer to "which one?". */
     fun chooseOption(index: Int) {
+        val live = liveSession
+        val name = liveChoices?.getOrNull(index)
+        if (live != null && name != null) {
+            liveChoices = null
+            _state.update { it.copy(disambiguation = null) }
+            live.sendText("I mean $name.")
+            return
+        }
         choiceTap?.complete(index)
     }
 
@@ -135,6 +188,7 @@ class AssistantOrchestrator(
                 fail(phrases.backendNotSet(), settings)
                 return
             }
+            if (settings.liveMode && runLive(typed, settings, phrases)) return
 
             var next: String? = typed ?: when (val heard = listen(settings)) {
                 is SpeechResult.Text -> heard.text
@@ -210,6 +264,208 @@ class AssistantOrchestrator(
         } finally {
             followUpTyped = null
             _state.update { it.copy(followUp = false) }
+        }
+    }
+
+    /**
+     * Live mode: one streaming conversation the user can talk over. Returns false, having said nothing,
+     * when Live can't start (no connection, free quota used up), so the normal pipeline runs instead.
+     */
+    private suspend fun runLive(typed: String?, settings: AppSettings, phrases: Phrases): Boolean {
+        val voice = liveVoice ?: return false
+        if (clock() < liveCooldownUntil) return false
+        _state.update { it.copy(phase = AssistantPhase.THINKING, live = true) }
+        val contactNames = if (settings.shareContactNames && contacts.hasPermission()) {
+            contacts.loadContacts().map { it.displayName }.distinct()
+        } else null
+        val request = LiveStartRequest(settings.voiceName.ifBlank { AppSettings.DEFAULT_VOICE }, settings.languageTag, contactNames) {
+            _level.value = it.coerceIn(0f, 1f)
+        }
+        val session = when (val start = voice.start(request)) {
+            is LiveStart.Started -> start.session
+            is LiveStart.Unavailable -> {
+                if (start.quota) liveCooldownUntil = clock() + LiveRules.QUOTA_COOLDOWN_MS
+                _state.update { it.copy(live = false, reply = phrases.liveUnavailable()) }
+                return false
+            }
+        }
+        liveSession = session
+        try {
+            _state.update { it.copy(phase = AssistantPhase.LISTENING, live = true, transcript = "", reply = "") }
+            typed?.let(session::sendText)
+            coroutineScope {
+                liveLoop(session, settings, phrases)
+                // A tool still counting down is dropped; one already executing finishes (it is NonCancellable).
+                coroutineContext.cancelChildren()
+            }
+        } finally {
+            session.close()
+            liveSession = null
+            liveChoices = null
+            liveDraft = null
+            liveRecent.clear()
+            _level.value = 0f
+            _state.update { it.copy(live = false, disambiguation = null, confirmation = null) }
+        }
+        return true
+    }
+
+    /** Follows the conversation until silence, "thanks", a hand-over action, a tap or a dropped connection. */
+    private suspend fun CoroutineScope.liveLoop(session: LiveSession, settings: AppSettings, phrases: Phrases) {
+        val user = StringBuilder()
+        val reply = StringBuilder()
+        var userTurnOpen = false
+        var replyOpen = false
+        var speaking = false
+        var ending = false
+        var running = 0
+        val tools = mutableMapOf<String, Job>()
+        while (true) {
+            val waitMs = when {
+                speaking || running > 0 -> LIVE_BUSY_CAP_MS
+                ending -> LiveRules.END_GRACE_MS
+                else -> LiveRules.IDLE_MS
+            }
+            val received = withTimeoutOrNull(waitMs) { session.events.receiveCatching() } ?: return
+            when (val event = received.getOrNull() ?: return) {
+                is LiveEvent.Heard -> {
+                    if (!userTurnOpen) user.clear()
+                    userTurnOpen = true
+                    user.append(event.text)
+                    val heard = user.toString().trim()
+                    _state.update { it.copy(transcript = heard) }
+                    // "No, stop!" while a call or message counts down.
+                    if (YesNoParser.parse(heard) == YesNo.NO) confirmDecision?.complete(false)
+                }
+                is LiveEvent.Said -> {
+                    if (!replyOpen) reply.clear()
+                    replyOpen = true
+                    reply.append(event.text)
+                    _state.update { it.copy(reply = reply.toString().trim()) }
+                }
+                is LiveEvent.Speaking -> {
+                    speaking = event.active
+                    _state.update { it.copy(phase = if (speaking) AssistantPhase.SPEAKING else AssistantPhase.LISTENING) }
+                    if (!speaking && ending && running == 0) return
+                }
+                LiveEvent.Interrupted -> {
+                    speaking = false
+                    replyOpen = false
+                    _state.update { it.copy(phase = AssistantPhase.LISTENING) }
+                }
+                LiveEvent.TurnComplete -> {
+                    if (userTurnOpen && FollowUp.isEnd(user.toString())) ending = true
+                    userTurnOpen = false
+                    replyOpen = false
+                }
+                is LiveEvent.ToolCall -> {
+                    running++
+                    val heard = user.toString().trim()
+                    tools[event.id] = launch {
+                        try {
+                            val result = runLiveTool(event.command, heard, session, settings, phrases)
+                            session.sendToolResult(event.id, event.name, result.text)
+                            if (result.ends) ending = true
+                        } finally {
+                            running--
+                            tools.remove(event.id)
+                        }
+                    }
+                }
+                is LiveEvent.ToolCancelled -> event.ids.forEach { tools[it]?.cancel() }
+                is LiveEvent.Ended -> {
+                    if (event.quota) liveCooldownUntil = clock() + LiveRules.QUOTA_COOLDOWN_MS
+                    event.spokenMessage?.let { fail(it, settings) }
+                    return
+                }
+            }
+        }
+    }
+
+    /** Runs one tool Gemini Live asked for and returns what to tell her, worded for her to relay. */
+    private suspend fun runLiveTool(
+        command: AssistantCommand,
+        heard: String,
+        session: LiveSession,
+        settings: AppSettings,
+        phrases: Phrases,
+    ): LiveToolResult {
+        liveRecent[command]?.let { (at, result) ->
+            if (clock() - at < LiveRules.DUPLICATE_WINDOW_MS) return LiveToolResult("already done a moment ago ($result). Don't do it again.")
+        }
+        val transcript = heard.ifBlank { command.toolName }
+        var contact: Contact? = null
+        val spokenName = command.contactName
+        if (spokenName != null) {
+            if (!contacts.hasPermission()) {
+                val msg = phrases.needPermission("contacts")
+                addCard(ActionKind.INFO, msg, status = ActionStatus.FAILED)
+                log(transcript, command.toolName, msg, ActionStatus.FAILED)
+                return LiveToolResult("failed: $msg Tell the user to allow Contacts for Jarvis in the phone's settings.")
+            }
+            when (val match = ContactMatcher.match(spokenName, contacts.loadContacts())) {
+                is ContactMatch.Single -> contact = match.contact
+                ContactMatch.NotFound -> {
+                    val msg = phrases.notFound(spokenName)
+                    addCard(ActionKind.INFO, msg, status = ActionStatus.FAILED)
+                    log(transcript, command.toolName, "Contact not resolved: $spokenName", ActionStatus.FAILED)
+                    return LiveToolResult("failed: there is no contact called \"$spokenName\" on the phone. Ask the user to check the name.")
+                }
+                is ContactMatch.Ambiguous -> {
+                    val names = match.options.map { it.displayName }
+                    liveChoices = names
+                    _state.update { it.copy(disambiguation = Disambiguation(phrases.whichOne(names), names)) }
+                    return LiveToolResult(
+                        "needs a choice: several contacts match \"$spokenName\": ${names.joinToString()}. " +
+                            "Ask the user which one, then call ${command.toolName} again with that exact name.",
+                    )
+                }
+            }
+            liveChoices = null
+            _state.update { it.copy(disambiguation = null) }
+            if (contact.phoneNumber.isBlank()) {
+                val msg = phrases.noPhoneNumber(contact.displayName)
+                addCard(ActionKind.INFO, msg, status = ActionStatus.FAILED)
+                log(transcript, command.toolName, msg, ActionStatus.FAILED)
+                return LiveToolResult("failed: $msg")
+            }
+        }
+
+        val message = draftText(command)
+        if (command.isComposed && message != null) {
+            liveDraft = LiveDraft(command.toolName, contact?.id, message)
+            _state.update {
+                it.copy(confirmation = PendingConfirmation(confirmationTitle(command, contact), message, kindOf(command), 1, 1, awaitingYes = true))
+            }
+            return LiveToolResult("not sent yet: draft ready. Read it to the user word for word: \"$message\". Then ask whether to send it.")
+        }
+        val draft = liveDraft
+        val approvedDraft = draft != null && draft.tool == command.toolName && draft.contactId == contact?.id && draft.message == message
+        if (approvedDraft) {
+            liveDraft = null
+            _state.update { it.copy(confirmation = null) }
+        } else if (command.needsConfirmation && settings.confirmationCountdownEnabled && !countdown(command, contact, settings)) {
+            addCard(kindOf(command), phrases.cancelled(), describe(command, contact), ActionStatus.CANCELLED)
+            log(transcript, command.toolName, "Cancelled: ${describe(command, contact)}", ActionStatus.CANCELLED)
+            return LiveToolResult("cancelled: the user cancelled it, so nothing was done.")
+        }
+
+        // Once started, an action always finishes and is logged, even if the conversation ends meanwhile.
+        return withContext(NonCancellable) {
+            // A phone call needs the microphone and the speaker: hang up on Live first.
+            if (command is AssistantCommand.CallContact) session.close()
+            val outcome = try {
+                executor.execute(command, contact, phrases)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ActionOutcome(ActionStatus.FAILED, "Something went wrong while doing that.", e.message)
+            }
+            addCard(kindOf(command), outcome.speech, describe(command, contact), outcome.status)
+            log(transcript, command.toolName, describe(command, contact), outcome.status, outcome.detail)
+            val text = "${outcome.status.name.lowercase()}: ${outcome.speech}"
+            liveRecent[command] = clock() to text
+            LiveToolResult(text, ends = FollowUp.endsConversation(command, outcome.status))
         }
     }
 
@@ -649,6 +905,8 @@ class AssistantOrchestrator(
         const val MAX_CARDS = 4
         private const val ERROR_FLASH_MS = 600L
         private const val CALL_LISTEN_ATTEMPTS = 2
+        /** Safety net while she talks or a tool runs, in case an end-of-speech event never arrives. */
+        private const val LIVE_BUSY_CAP_MS = 60_000L
         const val CALL_TOOL = "incoming_call"
 
         /** "+91 98..." read digit by digit instead of as one huge number. */
