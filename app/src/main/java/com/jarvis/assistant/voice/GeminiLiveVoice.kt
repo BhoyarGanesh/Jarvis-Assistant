@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.jarvis.assistant.BuildConfig
 import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.live.LiveEvent
 import com.jarvis.assistant.domain.live.LiveSession
@@ -40,12 +41,21 @@ import javax.inject.Singleton
 
 @Serializable
 private data class LiveStartBody(
-    val type: String = "start",
+    val type: String,
     val voice: String,
     val now: String,
     val locale: String,
     val contacts: List<String>? = null,
 )
+
+private val startJson = Json { explicitNulls = false }
+
+/** The first message on /live. Every field is written out explicitly: the backend rejects a start without "type". */
+internal fun liveStartMessage(voice: String, now: String, locale: String, contacts: List<String>?): String =
+    startJson.encodeToString(
+        LiveStartBody.serializer(),
+        LiveStartBody(type = "start", voice = voice, now = now, locale = locale, contacts = contacts?.take(2000)?.map { it.take(100) }),
+    )
 
 /**
  * Live mode over the backend's `/live` WebSocket (which holds the Gemini key): streams the microphone
@@ -83,14 +93,15 @@ class GeminiLiveVoice @Inject constructor(
         }.getOrElse { return LiveStart.Unavailable("invalid backend URL") }
 
         val session = Session(request)
-        val start = LiveStartBody(
+        val start = liveStartMessage(
             voice = request.voice,
             now = SimpleDateFormat("yyyy-MM-dd HH:mm EEE", Locale.US).format(Date()),
             locale = request.languageTag,
-            contacts = request.contactNames?.take(2000)?.map { it.take(100) },
+            contacts = request.contactNames,
         )
-        session.socket = liveHttp.newWebSocket(httpRequest, session.Listener(json.encodeToString(LiveStartBody.serializer(), start)))
+        session.socket = liveHttp.newWebSocket(httpRequest, session.Listener(start))
         val ready = withTimeoutOrNull(READY_TIMEOUT_MS) { session.ready.await() }
+        if (ready !is Ready.Ok) Log.w(TAG, "Live unavailable: ${(ready as? Ready.Failed)?.reason ?: "no answer in ${READY_TIMEOUT_MS} ms"}")
         return when {
             ready == null -> {
                 session.close()
@@ -156,6 +167,7 @@ class GeminiLiveVoice @Inject constructor(
 
         override fun close() {
             if (!closed.compareAndSet(false, true)) return
+            Log.i(TAG, "live session closed", if (BuildConfig.DEBUG) Throwable("closed by") else null)
             mic?.release()
             player?.release()
             route?.exit()
@@ -188,6 +200,8 @@ class GeminiLiveVoice @Inject constructor(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val msg = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return
                 fun field(name: String) = runCatching { msg[name]?.jsonPrimitive?.content }.getOrNull()
+                // Event types and lengths only: what was said is never logged.
+                Log.d(TAG, "event ${field("type")}${field("text")?.let { " (${it.length} chars)" }.orEmpty()}")
                 when (field("type")) {
                     "ready" -> ready.complete(Ready.Ok)
                     "heard" -> field("text")?.let { events.trySend(LiveEvent.Heard(it)) }
@@ -213,7 +227,7 @@ class GeminiLiveVoice @Inject constructor(
                         val quota = field("error") == "rate_limited"
                         val message = field("message")
                         if (!ready.isCompleted) {
-                            ready.complete(Ready.Failed(field("error") ?: "error", quota))
+                            ready.complete(Ready.Failed("${field("error") ?: "error"}: ${message.orEmpty()}", quota))
                         } else {
                             end(message, quota)
                         }
@@ -222,6 +236,7 @@ class GeminiLiveVoice @Inject constructor(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.i(TAG, "backend closed the live session ($code)")
                 ready.complete(Ready.Failed("closed $code", false))
                 close()
             }
