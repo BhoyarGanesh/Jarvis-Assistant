@@ -70,6 +70,12 @@ fun SettingsScreen(
     val overlayAllowed = remember(resumeTick) { SystemSettings.canDrawOverlays(context) }
     val messagesOn = remember(resumeTick) { SystemSettings.notificationAccessGranted(context) }
     val callsAllowed = remember(resumeTick) { SystemSettings.callAnnouncePermitted(context) }
+    var calendarTick by remember { mutableIntStateOf(0) }
+    val calendarAllowed = remember(resumeTick, calendarTick) { SystemSettings.calendarGranted(context) }
+    val exactAlarms = remember(resumeTick) { SystemSettings.exactAlarmsAllowed(context) }
+    val calendarPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        calendarTick++
+    }
     val callPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         viewModel.setAnnounceCalls(SystemSettings.callAnnouncePermitted(context))
     }
@@ -261,6 +267,14 @@ fun SettingsScreen(
                 Divider()
                 StatusRow("Read & reply to messages (Notification access)", messagesOn, "Open") {
                     SystemSettings.openNotificationAccessSettings(context)
+                }
+                Divider()
+                StatusRow("Calendar (read your agenda, add events)", calendarAllowed, "Allow") {
+                    calendarPermissions.launch(SystemSettings.calendarPermissions)
+                }
+                Divider()
+                StatusRow("Exact reminder times (Alarms & reminders)", exactAlarms, "Allow") {
+                    SystemSettings.openExactAlarmSettings(context)
                 }
                 Divider()
                 StatusRow("Battery optimization exemption", batteryExempt, "Allow") {

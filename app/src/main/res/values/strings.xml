@@ -9,4 +9,5 @@
     <string name="widget_tap_to_talk">Tap to talk</string>
     <string name="notification_channel_listening">Wake word listening</string>
     <string name="notification_channel_alerts">Jarvis alerts</string>
+    <string name="notification_channel_reminders">Reminders</string>
 </resources>

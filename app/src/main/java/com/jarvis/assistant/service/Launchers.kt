@@ -19,6 +19,7 @@ import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.MainActivity
 import com.jarvis.assistant.R
 import com.jarvis.assistant.data.settings.SettingsRepository
+import com.jarvis.assistant.platform.ReminderManager
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -71,14 +72,18 @@ class BootReceiver : BroadcastReceiver() {
     @InstallIn(SingletonComponent::class)
     interface Dependencies {
         fun settings(): SettingsRepository
+        fun reminders(): ReminderManager
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        val settings = EntryPointAccessors.fromApplication(context.applicationContext, Dependencies::class.java).settings()
+        val deps = EntryPointAccessors.fromApplication(context.applicationContext, Dependencies::class.java)
+        val settings = deps.settings()
         val result = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
             try {
+                // The system drops scheduled alarms on reboot; set every pending reminder again.
+                deps.reminders().rescheduleAll()
                 val s = settings.current()
                 if (!s.startOnBoot || !s.wakeWordEnabled) return@launch
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

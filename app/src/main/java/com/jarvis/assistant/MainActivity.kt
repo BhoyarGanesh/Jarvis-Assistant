@@ -31,6 +31,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jarvis.assistant.data.settings.SettingsRepository
+import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.platform.PhoneFinder
 import com.jarvis.assistant.platform.ScreenCapture
 import com.jarvis.assistant.platform.UnlockCoordinator
@@ -50,6 +51,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var orchestrator: AssistantOrchestrator
     @Inject lateinit var whatsApp: WhatsAppSendCoordinator
     @Inject lateinit var unlock: UnlockCoordinator
     @Inject lateinit var screen: ScreenCapture
@@ -127,6 +129,11 @@ class MainActivity : ComponentActivity() {
                 intent.action = null
             }
             // Debug builds only: lets `adb shell am start` fill in the backend so secrets needn't be typed.
+            // Debug builds only: `adb shell am start ... --es text "remind me in 2 minutes to stretch"` runs it as if spoken.
+            ACTION_SAY -> if (BuildConfig.DEBUG) {
+                intent.getStringExtra(EXTRA_TEXT)?.let(orchestrator::triggerText)
+                intent.action = null
+            }
             ACTION_CONFIGURE -> if (BuildConfig.DEBUG) {
                 val url = intent.getStringExtra(EXTRA_BACKEND_URL)
                 val secret = intent.getStringExtra(EXTRA_SHARED_SECRET)
@@ -144,6 +151,8 @@ class MainActivity : ComponentActivity() {
         const val ACTION_LISTEN = "com.jarvis.assistant.action.LISTEN"
         private const val ACTION_STOP_RINGING = "com.jarvis.assistant.action.STOP_RINGING"
         private const val ACTION_CONFIGURE = "com.jarvis.assistant.action.DEBUG_CONFIGURE"
+        private const val ACTION_SAY = "com.jarvis.assistant.action.DEBUG_SAY"
+        private const val EXTRA_TEXT = "text"
         private const val EXTRA_BACKEND_URL = "backend_url"
         private const val EXTRA_SHARED_SECRET = "shared_secret"
 

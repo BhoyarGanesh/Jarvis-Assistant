@@ -1,5 +1,6 @@
 package com.jarvis.assistant.ui
 
+import android.app.AlarmManager
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
@@ -31,6 +32,22 @@ object SystemSettings {
         Manifest.permission.READ_CALL_LOG,
         Manifest.permission.READ_CONTACTS,
     )
+
+    /** Reading your agenda and adding events. */
+    val calendarPermissions = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+
+    fun calendarGranted(context: Context): Boolean = calendarPermissions.all { granted(context, it) }
+
+    /** Reminders fire on the minute only with "Alarms & reminders" allowed (Android 12+). */
+    fun exactAlarmsAllowed(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+
+    fun openExactAlarmSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            open(context, Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, "package:${context.packageName}".toUri())) ||
+                open(context, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+        }
+    }
 
     fun callAnnouncePermitted(context: Context): Boolean =
         granted(context, Manifest.permission.READ_PHONE_STATE) && granted(context, Manifest.permission.ANSWER_PHONE_CALLS)

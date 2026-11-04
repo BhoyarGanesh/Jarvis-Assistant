@@ -7,6 +7,8 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import com.jarvis.assistant.data.reminders.ReminderDao
+import com.jarvis.assistant.data.reminders.ReminderEntity
 import com.jarvis.assistant.domain.ActionLog
 import com.jarvis.assistant.domain.ActionLogEntry
 import com.jarvis.assistant.domain.ActionStatus
@@ -37,9 +39,10 @@ interface ActionLogDao {
     suspend fun clear()
 }
 
-@Database(entities = [ActionLogEntity::class], version = 1, exportSchema = false)
+@Database(entities = [ActionLogEntity::class, ReminderEntity::class], version = 2, exportSchema = false)
 abstract class JarvisDatabase : RoomDatabase() {
     abstract fun actionLogDao(): ActionLogDao
+    abstract fun reminderDao(): ReminderDao
 }
 
 @Singleton

@@ -4,6 +4,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
  * Turns the backend's normalized `{tool, args}` into an [AssistantCommand].
@@ -22,6 +24,10 @@ object CommandParser {
 
         fun bool(key: String): Boolean =
             (args[key] as? JsonPrimitive)?.let { it.booleanOrNull ?: it.content.equals("true", ignoreCase = true) } ?: false
+
+        fun dateTime(key: String): LocalDateTime? = str(key)?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
+
+        fun date(key: String): LocalDate? = str(key)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
         fun nonBlank(key: String) = str(key)?.takeIf { it.isNotEmpty() }
 
@@ -57,6 +63,24 @@ object CommandParser {
                 str("contact_name").orEmpty(),
                 str("question").orEmpty(),
             )
+            "set_reminder" -> {
+                val text = nonBlank("text")
+                val at = dateTime("when")
+                if (text != null && at != null) AssistantCommand.SetReminder(text, at) else null
+            }
+            "list_reminders" -> AssistantCommand.ListReminders
+            "cancel_reminder" -> nonBlank("text")?.let(AssistantCommand::CancelReminder)
+            "add_calendar_event" -> {
+                val title = nonBlank("title")
+                val start = dateTime("start")
+                val minutes = (int("duration_minutes") ?: 60).takeIf { it in 5..1440 }
+                if (title != null && start != null && minutes != null) {
+                    AssistantCommand.AddCalendarEvent(title, start, minutes, str("location").orEmpty())
+                } else null
+            }
+            "read_calendar" -> date("date")?.let { d ->
+                (int("days") ?: 1).takeIf { it in 1..7 }?.let { AssistantCommand.ReadCalendar(d, it) }
+            }
             "find_phone" -> AssistantCommand.FindPhone
             "answer" -> nonBlank("text")?.let(AssistantCommand::Answer)
             else -> null

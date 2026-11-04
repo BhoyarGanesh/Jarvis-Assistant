@@ -70,6 +70,12 @@ class AssistantOrchestrator(
         session = scope.launch { runSession() }
     }
 
+    /** Runs [text] as if it had been heard. For debug-build testing without speaking. */
+    fun triggerText(text: String) {
+        if (isBusy || text.isBlank()) return
+        session = scope.launch { runSession(typed = text) }
+    }
+
     /** Cancels a pending countdown, or the whole interaction if nothing is pending. */
     fun cancel() {
         val pending = confirmDecision
@@ -94,7 +100,7 @@ class AssistantOrchestrator(
         _state.update { it.copy(errorMessage = null, phase = if (it.phase == AssistantPhase.ERROR) AssistantPhase.IDLE else it.phase) }
     }
 
-    private suspend fun runSession() {
+    private suspend fun runSession(typed: String? = null) {
         val settings = settingsSource.current()
         val phrases = Phrases(settings.isHindi)
         try {
@@ -106,7 +112,7 @@ class AssistantOrchestrator(
                 return
             }
 
-            val transcript = when (val heard = listen(settings)) {
+            val transcript = if (typed != null) typed else when (val heard = listen(settings)) {
                 is SpeechResult.Text -> heard.text
                 SpeechResult.NoMatch -> {
                     speak(phrases.didNotHear(), settings)
@@ -166,6 +172,34 @@ class AssistantOrchestrator(
         session = job
         callSession = job
         job.start()
+    }
+
+    /**
+     * Says a due reminder out loud (even with spoken replies off: being told is the point). Skipped while
+     * you're mid-conversation or on a call; the notification still shows.
+     */
+    fun announceReminder(text: String) {
+        if (session?.isActive == true) return
+        val job = scope.launch(start = CoroutineStart.LAZY) { runReminderAnnouncement(text) }
+        session = job
+        job.start()
+    }
+
+    private suspend fun runReminderAnnouncement(text: String) {
+        val settings = settingsSource.current()
+        val line = Phrases(settings.isHindi).reminderDue(text)
+        try {
+            _state.update { it.copy(transcript = "", errorMessage = null, confirmation = null, disambiguation = null) }
+            wakeWord.pause()
+            addCard(ActionKind.REMINDER, line)
+            _state.update { it.copy(phase = AssistantPhase.SPEAKING, reply = line) }
+            speechOutput.speak(line, settings.languageTag)
+        } catch (e: CancellationException) {
+            speechOutput.stop()
+            throw e
+        } finally {
+            endSession()
+        }
     }
 
     /** The call was picked up on screen, missed or hung up: stop announcing it. */
@@ -526,6 +560,8 @@ class AssistantOrchestrator(
             is AssistantCommand.SummarizeMessages -> ActionKind.MESSAGES
             is AssistantCommand.ScreenQuestion -> ActionKind.SCREEN
             AssistantCommand.FindPhone -> ActionKind.FIND_PHONE
+            is AssistantCommand.SetReminder, AssistantCommand.ListReminders, is AssistantCommand.CancelReminder -> ActionKind.REMINDER
+            is AssistantCommand.AddCalendarEvent, is AssistantCommand.ReadCalendar -> ActionKind.CALENDAR
             is AssistantCommand.Answer -> ActionKind.ANSWER
         }
 
@@ -548,6 +584,12 @@ class AssistantOrchestrator(
                 listOf(command.appName, command.contactName).filter { it.isNotBlank() }.joinToString(prefix = " ", separator = ", ")
                     .takeIf { it.isNotBlank() }.orEmpty()
             AssistantCommand.FindPhone -> "Find my phone"
+            is AssistantCommand.SetReminder -> "Reminder ${command.at.toLocalDate()} ${Phrases.formatTime(command.at.hour, command.at.minute)}: ${command.text}"
+            AssistantCommand.ListReminders -> "List reminders"
+            is AssistantCommand.CancelReminder -> "Cancel reminder: ${command.query}"
+            is AssistantCommand.AddCalendarEvent ->
+                "Calendar ${command.start.toLocalDate()} ${Phrases.formatTime(command.start.hour, command.start.minute)}: ${command.title}"
+            is AssistantCommand.ReadCalendar -> "Read calendar ${command.date}" + if (command.days > 1) " (+${command.days - 1} days)" else ""
             is AssistantCommand.Answer -> command.text
         }
     }

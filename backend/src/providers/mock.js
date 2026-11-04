@@ -38,6 +38,19 @@ export class MockProvider {
     if ((m = t.match(/^read (?:my )?(\w+ )?(?:messages|notifications)$/i))) {
       return normalizeToolCall('read_notifications', { app_name: m[1] ? titleCase(m[1].trim()) : '', contact_name: '' });
     }
+    if ((m = t.match(/^remind me in (\d+) minutes? to (.+)$/i))) {
+      const at = new Date();
+      at.setMinutes(at.getMinutes() + Number(m[1]));
+      const pad = (n) => String(n).padStart(2, '0');
+      const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+      return normalizeToolCall('set_reminder', { text: m[2], when });
+    }
+    if (/^what are my reminders$/i.test(t)) return normalizeToolCall('list_reminders', {});
+    if (/^what'?s on my calendar today$/i.test(t)) {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      return normalizeToolCall('read_calendar', { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, days: 1 });
+    }
     if (/^(?:where are you|find my phone|ring my phone)$/i.test(t)) {
       return normalizeToolCall('find_phone', {});
     }

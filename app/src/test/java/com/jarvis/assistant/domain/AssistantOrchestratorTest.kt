@@ -521,4 +521,28 @@ class AssistantOrchestratorTest {
         assertTrue(h.spoken.none { "Shall I send it" in it })
         assertEquals(1, h.executed.size)
     }
+
+    @Test fun dueReminderIsSpokenEvenWithVoiceRepliesOff() = runTest {
+        val h = harness(settings = baseSettings.copy(voiceReplyEnabled = false), speech = emptyList())
+        h.orchestrator.announceReminder("call King")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Reminder: call King."), h.spoken)
+        assertEquals(ActionKind.REMINDER, h.orchestrator.state.value.cards.first().kind)
+        assertEquals(1, h.pauses)
+        assertEquals(1, h.resumes)
+        assertFalse(h.orchestrator.isBusy)
+    }
+
+    @Test fun dueReminderDoesNotInterruptAConversation() = runTest {
+        val never = CompletableDeferred<SpeechResult>()
+        val h = harness(speech = listOf({ never.await() }))
+        h.orchestrator.trigger()
+        runCurrent()
+        h.orchestrator.announceReminder("call King")
+        runCurrent()
+        assertTrue(h.spoken.none { "Reminder" in it })
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+    }
 }

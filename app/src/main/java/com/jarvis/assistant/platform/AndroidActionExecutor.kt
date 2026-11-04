@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.provider.MediaStore
 import android.telecom.TelecomManager
 import android.telephony.PhoneNumberUtils
@@ -30,9 +31,14 @@ import com.jarvis.assistant.domain.apps.InstalledApp
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.messages.MessageSelector
 import com.jarvis.assistant.domain.model.AssistantCommand
+import com.jarvis.assistant.domain.reminders.ReminderMatcher
+import com.jarvis.assistant.domain.reminders.ReminderTime
+import com.jarvis.assistant.domain.reminders.ReminderTimes
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,6 +53,8 @@ class AndroidActionExecutor @Inject constructor(
     private val phoneFinder: PhoneFinder,
     private val backend: BackendClient,
     private val settings: SettingsRepository,
+    private val reminders: ReminderManager,
+    private val calendar: CalendarAccess,
 ) : ActionExecutor {
 
     override suspend fun execute(command: AssistantCommand, contact: Contact?, phrases: Phrases): ActionOutcome =
@@ -78,12 +86,72 @@ class AndroidActionExecutor @Inject constructor(
             is AssistantCommand.ReplyMessage -> replyMessage(command, phrases)
             is AssistantCommand.ScreenQuestion -> askAboutScreen(command.question, phrases)
             is AssistantCommand.SummarizeMessages -> summarize(command, phrases)
+            is AssistantCommand.SetReminder -> setReminder(command, phrases)
+            AssistantCommand.ListReminders -> {
+                val upcoming = reminders.pending()
+                ActionOutcome(ActionStatus.SUCCESS, if (upcoming.isEmpty()) phrases.noReminders() else phrases.reminderList(upcoming, now()))
+            }
+            is AssistantCommand.CancelReminder -> {
+                val matched = ReminderMatcher.match(reminders.pending(), command.query)
+                if (matched.isEmpty()) {
+                    ActionOutcome(ActionStatus.FAILED, phrases.reminderNotFound(command.query))
+                } else {
+                    reminders.cancel(matched)
+                    ActionOutcome(ActionStatus.SUCCESS, phrases.remindersCancelled(matched))
+                }
+            }
+            is AssistantCommand.AddCalendarEvent -> addEvent(command, phrases)
+            is AssistantCommand.ReadCalendar -> readCalendar(command, phrases)
             AssistantCommand.FindPhone -> {
                 phoneFinder.ring()
                 ActionOutcome(ActionStatus.SUCCESS, phrases.foundMe())
             }
             is AssistantCommand.Answer -> ActionOutcome(ActionStatus.SUCCESS, command.text)
         }
+
+    private suspend fun setReminder(command: AssistantCommand.SetReminder, phrases: Phrases): ActionOutcome {
+        val now = now()
+        return when (val time = ReminderTimes.resolve(command.at, now)) {
+            ReminderTime.Past -> ActionOutcome(ActionStatus.FAILED, phrases.reminderPast())
+            is ReminderTime.At -> {
+                reminders.add(command.text, time.time)
+                ActionOutcome(
+                    ActionStatus.SUCCESS,
+                    phrases.reminderSet(command.text, time.time, now, exact = reminders.canBeExact),
+                    if (time.movedToNextDay) "Requested time had passed; moved to the next day" else null,
+                )
+            }
+        }
+    }
+
+    private suspend fun addEvent(command: AssistantCommand.AddCalendarEvent, phrases: Phrases): ActionOutcome {
+        val end = command.start.plusMinutes(command.durationMinutes.toLong())
+        if (calendar.canWrite && calendar.add(command.title, command.start, end, command.location)) {
+            return ActionOutcome(ActionStatus.SUCCESS, phrases.eventAdded(command.title, command.start, now()))
+        }
+        // No permission or no writable calendar: open the calendar app with the event filled in instead.
+        if (!unlock.ensureUnlocked()) return locked(phrases)
+        val zone = ZoneId.systemDefault()
+        val insert = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.Events.TITLE, command.title)
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, command.start.atZone(zone).toInstant().toEpochMilli())
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end.atZone(zone).toInstant().toEpochMilli())
+            .apply { if (command.location.isNotBlank()) putExtra(CalendarContract.Events.EVENT_LOCATION, command.location) }
+        return if (startActivity(insert)) {
+            ActionOutcome(ActionStatus.NEEDS_USER, phrases.eventOpened(), if (calendar.canWrite) "No writable calendar" else "No calendar permission")
+        } else {
+            ActionOutcome(ActionStatus.FAILED, if (calendar.canWrite) phrases.calendarMissing() else phrases.needCalendarPermission())
+        }
+    }
+
+    private suspend fun readCalendar(command: AssistantCommand.ReadCalendar, phrases: Phrases): ActionOutcome {
+        if (!calendar.canRead) return ActionOutcome(ActionStatus.FAILED, phrases.needCalendarPermission(), "No calendar permission")
+        val from = command.date.atStartOfDay()
+        val events = calendar.events(from, from.plusDays(command.days.toLong()))
+        return ActionOutcome(ActionStatus.SUCCESS, phrases.agenda(events, command.date, command.days, now().toLocalDate()))
+    }
+
+    private fun now(): LocalDateTime = LocalDateTime.now()
 
     private suspend fun askAboutScreen(question: String, phrases: Phrases): ActionOutcome {
         val shot = screen.take()

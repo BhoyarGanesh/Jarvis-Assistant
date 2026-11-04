@@ -1,5 +1,8 @@
 package com.jarvis.assistant.domain.model
 
+import java.time.LocalDate
+import java.time.LocalDateTime
+
 /** A tool call returned by the backend, already validated into a typed command. */
 sealed interface AssistantCommand {
     val toolName: String
@@ -55,6 +58,29 @@ sealed interface AssistantCommand {
     /** Blank filters mean "any"; [contactName] may be a group name like "Family". */
     data class SummarizeMessages(val appName: String, val contactName: String, val question: String) : AssistantCommand {
         override val toolName = "summarize_messages"
+    }
+
+    /** [at] is local wall-clock time. */
+    data class SetReminder(val text: String, val at: LocalDateTime) : AssistantCommand {
+        override val toolName = "set_reminder"
+    }
+
+    data object ListReminders : AssistantCommand {
+        override val toolName = "list_reminders"
+    }
+
+    /** [query] is words from the reminder, or "all". */
+    data class CancelReminder(val query: String) : AssistantCommand {
+        override val toolName = "cancel_reminder"
+    }
+
+    data class AddCalendarEvent(val title: String, val start: LocalDateTime, val durationMinutes: Int, val location: String) :
+        AssistantCommand {
+        override val toolName = "add_calendar_event"
+    }
+
+    data class ReadCalendar(val date: LocalDate, val days: Int) : AssistantCommand {
+        override val toolName = "read_calendar"
     }
 
     data object FindPhone : AssistantCommand {

@@ -1,6 +1,11 @@
 package com.jarvis.assistant.domain
 
 import com.jarvis.assistant.domain.messages.IncomingMessage
+import com.jarvis.assistant.domain.reminders.CalendarEvent
+import com.jarvis.assistant.domain.reminders.Reminder
+import com.jarvis.assistant.domain.reminders.SpokenWhen
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /** Short spoken confirmations. Hindi variants are used when the assistant language is Hindi. */
 class Phrases(private val hindi: Boolean) {
@@ -18,6 +23,58 @@ class Phrases(private val hindi: Boolean) {
     fun searching(query: String) = pick("Searching for $query", "$query खोज रहा हूँ")
     fun playing(query: String) = pick("Playing $query", "$query चला रहा हूँ")
     fun cancelled() = pick("Cancelled", "रद्द कर दिया")
+
+    // Reminders
+    fun reminderSet(text: String, at: LocalDateTime, now: LocalDateTime, exact: Boolean): String {
+        val whenSpoken = SpokenWhen.of(at, now, hindi)
+        val base = pick("Okay, I'll remind you $whenSpoken: $text.", "ठीक है, $whenSpoken याद दिलाऊँगा: $text।")
+        return if (exact) base else base + pick(
+            " It may be a few minutes late until you allow exact alarms in Jarvis settings.",
+            " सटीक समय के लिए Jarvis सेटिंग्स में अलार्म की अनुमति दें।",
+        )
+    }
+    fun reminderPast() = pick("That time has already passed. When should I remind you?", "वो समय निकल चुका है। कब याद दिलाऊँ?")
+    fun reminderDue(text: String) = pick("Reminder: $text.", "याद दिलाना: $text।")
+    fun noReminders() = pick("You have no upcoming reminders.", "कोई आने वाला रिमाइंडर नहीं है।")
+    fun reminderList(reminders: List<Reminder>, now: LocalDateTime): String {
+        val items = reminders.take(LIST_LIMIT).joinToString(" ") { "${it.text.trimEnd('.')}, ${SpokenWhen.of(it.at, now, hindi)}." }
+        val more = (reminders.size - LIST_LIMIT).takeIf { it > 0 }?.let { pick(" And $it more.", " और $it।") }.orEmpty()
+        return if (reminders.size == 1) {
+            items + more
+        } else {
+            pick("You have ${reminders.size} reminders. ", "${reminders.size} रिमाइंडर हैं। ") + items + more
+        }
+    }
+    fun reminderNotFound(query: String) = pick("I couldn't find a reminder about $query.", "$query का कोई रिमाइंडर नहीं मिला।")
+    fun remindersCancelled(cancelled: List<Reminder>) = if (cancelled.size == 1) {
+        pick("Cancelled the reminder: ${cancelled[0].text}.", "रिमाइंडर रद्द कर दिया: ${cancelled[0].text}।")
+    } else {
+        pick("Cancelled ${cancelled.size} reminders.", "${cancelled.size} रिमाइंडर रद्द कर दिए।")
+    }
+
+    // Calendar
+    fun needCalendarPermission() = pick(
+        "I need calendar access for that. Please allow it in Jarvis settings.",
+        "इसके लिए कैलेंडर की अनुमति चाहिए। Jarvis सेटिंग्स में अनुमति दें।",
+    )
+    fun eventAdded(title: String, start: LocalDateTime, now: LocalDateTime) = pick(
+        "Added $title ${SpokenWhen.of(start, now, hindi)} to your calendar.",
+        "$title ${SpokenWhen.of(start, now, hindi)} कैलेंडर में जोड़ दिया।",
+    )
+    fun eventOpened() = pick("I opened your calendar with the event filled in. Please tap save.", "कैलेंडर में इवेंट भर दिया है, सेव दबाइए।")
+    fun calendarMissing() = pick("I couldn't find a calendar on this phone.", "इस फ़ोन पर कोई कैलेंडर नहीं मिला।")
+    fun agenda(events: List<CalendarEvent>, from: LocalDate, days: Int, today: LocalDate): String {
+        val span = if (days == 1) SpokenWhen.day(from, today, hindi) else pick("in the next $days days", "अगले $days दिनों में")
+        if (events.isEmpty()) return pick("Nothing on your calendar $span.", "$span कैलेंडर में कुछ नहीं है।")
+        val items = events.take(LIST_LIMIT).joinToString(", ") { e ->
+            val day = if (days == 1) "" else SpokenWhen.day(e.start.toLocalDate(), today, hindi) + " "
+            val time = if (e.allDay) pick("all day", "पूरा दिन") else pick("at ", "") + formatTime(e.start.hour, e.start.minute)
+            "${e.title} $day$time"
+        }
+        val more = (events.size - LIST_LIMIT).takeIf { it > 0 }?.let { pick(", and $it more", ", और $it") }.orEmpty()
+        val count = if (events.size == 1) pick("one event", "एक इवेंट") else pick("${events.size} events", "${events.size} इवेंट")
+        return pick("You have $count $span: ", "$span $count हैं: ") + items + more + "."
+    }
     fun draftReadback(to: String?, message: String): String {
         // End the draft with exactly one sentence mark before the question.
         val text = message.trim().let { if (it.lastOrNull() in listOf('.', '!', '?', '।')) it else "$it." }
@@ -86,6 +143,8 @@ class Phrases(private val hindi: Boolean) {
     }
 
     companion object {
+        private const val LIST_LIMIT = 6
+
         private const val MAX_READ_CHARS = 300
         fun formatTime(hour: Int, minute: Int): String {
             val h12 = if (hour % 12 == 0) 12 else hour % 12

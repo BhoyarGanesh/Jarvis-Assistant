@@ -26,7 +26,7 @@ const post = (base, body, secret = SECRET, path = '/interpret') =>
 
 let base;
 before(async () => {
-  base = await start(new MockProvider());
+  base = await start(new MockProvider(), { rateLimitPerMinute: 1000 });
 });
 after(() => servers.forEach((s) => s.close()));
 
@@ -60,6 +60,7 @@ const PHRASES = [
   ['play arijit singh', 'play_music', { query: 'arijit singh' }],
   ['hello', 'answer', { text: 'Hello! How can I help?' }],
   ['read my whatsapp messages', 'read_notifications', { app_name: 'Whatsapp', contact_name: '' }],
+  ['what are my reminders?', 'list_reminders', {}],
   ['reply to king saying on my way', 'reply_message', { contact_name: 'King', message: 'on my way', composed: false }],
   ['Jarvis, where are you?', 'find_phone', {}],
   ['is this a scam', 'screen_question', { question: 'is this a scam' }],

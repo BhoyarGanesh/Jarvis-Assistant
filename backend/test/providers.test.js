@@ -21,6 +21,11 @@ const CASES = [
   ['reply_message', { contact_name: '', message: 'on my way', composed: false }],
   ['screen_question', { question: 'is this a scam?' }],
   ['summarize_messages', { app_name: 'WhatsApp', contact_name: 'Family', question: 'summarise my family group' }],
+  ['set_reminder', { text: 'call King', when: '2026-11-04T18:00' }],
+  ['list_reminders', {}],
+  ['cancel_reminder', { text: 'King' }],
+  ['add_calendar_event', { title: 'Meeting with Ravi', start: '2026-11-06T15:00', duration_minutes: 60, location: '' }],
+  ['read_calendar', { date: '2026-11-05', days: 1 }],
   ['find_phone', {}],
   ['answer', { text: 'Paris is the capital of France.' }],
 ];
@@ -231,4 +236,17 @@ test('message tools carry a composed flag that defaults to false', () => {
   // Some models send booleans as strings.
   assert.equal(normalizeToolCall('reply_message', { contact_name: '', message: 'ok', composed: 'true' }).args.composed, true);
   assert.equal(normalizeToolCall('reply_message', { contact_name: '', message: 'ok', composed: 'false' }).args.composed, false);
+});
+
+test('reminder and calendar tools validate dates and fill defaults', () => {
+  assert.equal(normalizeToolCall('set_reminder', { text: 'call King', when: 'tomorrow 6pm' }).tool, 'answer');
+  assert.equal(normalizeToolCall('set_reminder', { text: ' ', when: '2026-11-04T18:00' }).tool, 'answer');
+  assert.deepEqual(normalizeToolCall('add_calendar_event', { title: 'Dentist', start: '2026-11-05T10:30' }).args, {
+    title: 'Dentist',
+    start: '2026-11-05T10:30',
+    duration_minutes: 60,
+    location: '',
+  });
+  assert.equal(normalizeToolCall('read_calendar', { date: '2026-11-05', days: 30 }).tool, 'answer');
+  assert.deepEqual(normalizeToolCall('read_calendar', { date: '2026-11-05' }).args, { date: '2026-11-05', days: 1 });
 });

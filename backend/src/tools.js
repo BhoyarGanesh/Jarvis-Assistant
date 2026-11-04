@@ -4,6 +4,11 @@ import { z } from 'zod';
 // sent to providers and a zod schema used to validate whatever the provider returns.
 const str = (description, maxLength = 500) => ({ type: 'string', description, maxLength });
 const int = (description, minimum, maximum) => ({ type: 'integer', description, minimum, maximum });
+// Local wall-clock times; the phone applies its own time zone.
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const dateTime = (description) => ({ type: 'string', description: `${description}, local time as YYYY-MM-DDTHH:MM` });
+
 const composedParam = {
   type: 'boolean',
   description:
@@ -141,6 +146,62 @@ export const TOOLS = [
       app_name: z.string().trim().max(50).default(''),
       contact_name: z.string().trim().max(100).default(''),
       question: z.string().trim().max(300).default(''),
+    }),
+  },
+  {
+    name: 'set_reminder',
+    description:
+      "Remind the user about something at a time: 'remind me at 6 to call King', 'remind me in 20 minutes to check the oven', 'don't let me forget the meeting tomorrow at 9'. Work out the exact date and time from the current local time. Use set_alarm instead for 'wake me up' or 'set an alarm'.",
+    parameters: {
+      text: str('What to remind about, as a short phrase without "remind me to", e.g. "call King"', 200),
+      when: dateTime('When to remind'),
+    },
+    zod: z.object({
+      text: z.string().trim().min(1).max(200),
+      when: z.string().trim().regex(DATE_TIME),
+    }),
+  },
+  {
+    name: 'list_reminders',
+    description: "Read out the user's upcoming reminders: 'what are my reminders?', 'what did I ask you to remind me?'.",
+    parameters: {},
+    zod: z.object({}),
+  },
+  {
+    name: 'cancel_reminder',
+    description:
+      'Cancel a reminder: "cancel the reminder about King", "delete my oven reminder", "cancel my reminders". Use words from the reminder, or "all" to cancel every upcoming reminder.',
+    parameters: { text: str('Words from the reminder to cancel, or "all"', 200) },
+    zod: z.object({ text: z.string().trim().min(1).max(200) }),
+  },
+  {
+    name: 'add_calendar_event',
+    description:
+      "Add an event to the user's calendar: 'add a meeting with Ravi on Friday at 3', 'put dentist tomorrow at 10:30 on my calendar', 'schedule lunch with Mom on Sunday at 1 for 2 hours'. Default to 60 minutes when no length is given.",
+    parameters: {
+      title: str('Short event title, e.g. "Meeting with Ravi"', 200),
+      start: dateTime('When the event starts'),
+      duration_minutes: int('Length in minutes, 5-1440', 5, 1440),
+      location: str('Where, or empty string', 200),
+    },
+    zod: z.object({
+      title: z.string().trim().min(1).max(200),
+      start: z.string().trim().regex(DATE_TIME),
+      duration_minutes: z.coerce.number().int().min(5).max(1440).default(60),
+      location: z.string().trim().max(200).default(''),
+    }),
+  },
+  {
+    name: 'read_calendar',
+    description:
+      "Read the user's calendar events: 'what's on my calendar today?', 'what do I have tomorrow?', 'am I free on Friday?', 'what's my schedule this week?'. Use days 7 for 'this week', otherwise 1.",
+    parameters: {
+      date: { type: 'string', description: 'First day to read, YYYY-MM-DD' },
+      days: int('How many days to read, 1-7', 1, 7),
+    },
+    zod: z.object({
+      date: z.string().trim().regex(DATE),
+      days: z.coerce.number().int().min(1).max(7).default(1),
     }),
   },
   {

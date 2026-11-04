@@ -6,6 +6,8 @@ import com.jarvis.assistant.data.contacts.AndroidContactsSource
 import com.jarvis.assistant.data.history.ActionLogDao
 import com.jarvis.assistant.data.history.HistoryRepository
 import com.jarvis.assistant.data.history.JarvisDatabase
+import com.jarvis.assistant.data.reminders.MIGRATION_1_2
+import com.jarvis.assistant.data.reminders.ReminderDao
 import com.jarvis.assistant.data.remote.BackendClient
 import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.AssistantOrchestrator
@@ -54,10 +56,15 @@ object AppModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): JarvisDatabase =
-        Room.databaseBuilder(context, JarvisDatabase::class.java, "jarvis.db").build()
+        Room.databaseBuilder(context, JarvisDatabase::class.java, "jarvis.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideActionLogDao(db: JarvisDatabase): ActionLogDao = db.actionLogDao()
+
+    @Provides
+    fun provideReminderDao(db: JarvisDatabase): ReminderDao = db.reminderDao()
 
     @Provides
     @Singleton

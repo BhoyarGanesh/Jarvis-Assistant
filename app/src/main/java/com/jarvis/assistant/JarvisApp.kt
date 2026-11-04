@@ -22,6 +22,11 @@ class JarvisApp : Application() {
                     getString(R.string.notification_channel_alerts),
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ),
+                NotificationChannel(
+                    CHANNEL_REMINDERS,
+                    getString(R.string.notification_channel_reminders),
+                    NotificationManager.IMPORTANCE_HIGH,
+                ),
             ),
         )
     }
@@ -29,5 +34,6 @@ class JarvisApp : Application() {
     companion object {
         const val CHANNEL_LISTENING = "listening"
         const val CHANNEL_ALERTS = "alerts"
+        const val CHANNEL_REMINDERS = "reminders"
     }
 }
