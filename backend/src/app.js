@@ -11,6 +11,11 @@ const InterpretBody = z.object({
   contacts: z.array(z.string().trim().min(1).max(100)).max(2000).optional(),
   now: z.string().max(64).optional(),
   locale: z.string().max(20).optional(),
+  // Earlier turns of the same conversation, oldest first, for follow-ups ("call him", "and tomorrow?").
+  history: z
+    .array(z.object({ user: z.string().trim().max(400), assistant: z.string().trim().max(400) }))
+    .max(6)
+    .optional(),
 });
 
 // A 1280px JPEG screenshot is ~150-400 KB as base64; leave headroom for dense screens.
@@ -132,7 +137,9 @@ export function createApp({ provider, sharedSecret, speech = null, rateLimitPerM
 
   route('/interpret', '64kb', InterpretBody, async (body) => {
     const call = await provider.interpret(body);
-    return { result: call, log: `"${body.text}" -> ${call.tool}` };
+    // Earlier turns can hold message drafts, so only their count is logged.
+    const followUp = body.history?.length ? ` (follow-up, ${body.history.length} earlier turns)` : '';
+    return { result: call, log: `"${body.text}" -> ${call.tool}${followUp}` };
   });
 
   // Screenshots are never logged or stored; only the question is.

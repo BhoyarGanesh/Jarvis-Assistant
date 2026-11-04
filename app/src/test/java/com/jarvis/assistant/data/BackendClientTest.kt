@@ -7,6 +7,7 @@ import com.jarvis.assistant.data.remote.TextResult
 import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.domain.InterpretResult
 import com.jarvis.assistant.domain.SettingsSource
+import com.jarvis.assistant.domain.conversation.Turn
 import com.jarvis.assistant.domain.messages.IncomingMessage
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.flow.flowOf
@@ -70,6 +71,21 @@ class BackendClientTest {
         client.interpret("hello", "en-US", null)
         val body = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
         assertTrue("contacts" !in body)
+    }
+
+    @Test fun sendsEarlierTurnsForFollowUps() = runTest {
+        enqueue(200, """{"tool":"call_contact","args":{"name":"King"}}""")
+        client.interpret("call him", "en-US", null, listOf(Turn("what did king say", "Said: King is outside")))
+        val body = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
+        val turn = body["history"]!!.jsonArray.single().jsonObject
+        assertEquals("what did king say", turn["user"]!!.jsonPrimitive.content)
+        assertEquals("Said: King is outside", turn["assistant"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun firstTurnSendsNoHistory() = runTest {
+        enqueue(200, """{"tool":"answer","args":{"text":"hi"}}""")
+        client.interpret("hello", "en-US", null)
+        assertTrue("history" !in Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject)
     }
 
     @Test fun backendErrorMessageIsSpoken() = runTest {

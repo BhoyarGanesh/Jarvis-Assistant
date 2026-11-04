@@ -158,6 +158,14 @@ fun SettingsScreen(
             GlassCard(Modifier.fillMaxWidth()) {
                 SettingSwitch("Spoken replies", "Jarvis says confirmations like “Calling King”.", settings.voiceReplyEnabled, viewModel::setVoiceReply)
                 Divider()
+                SettingSwitch(
+                    "Follow-up mode",
+                    "After answering, Jarvis keeps listening for about 7 seconds, so you can say “and tomorrow?” or " +
+                        "“call him” without “Jarvis”. Say “thanks” or tap to end.",
+                    settings.followUpMode,
+                    viewModel::setFollowUpMode,
+                )
+                Divider()
                 Text("Her voice", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(vertical = 6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     VOICES.forEach { (name, label) ->

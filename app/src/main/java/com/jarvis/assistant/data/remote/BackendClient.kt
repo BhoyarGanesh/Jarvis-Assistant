@@ -3,6 +3,7 @@ package com.jarvis.assistant.data.remote
 import com.jarvis.assistant.domain.CommandInterpreter
 import com.jarvis.assistant.domain.InterpretResult
 import com.jarvis.assistant.domain.SettingsSource
+import com.jarvis.assistant.domain.conversation.Turn
 import com.jarvis.assistant.domain.messages.IncomingMessage
 import com.jarvis.assistant.domain.model.CommandParser
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,11 @@ private data class InterpretRequestBody(
     val contacts: List<String>? = null,
     val now: String,
     val locale: String,
+    val history: List<TurnBody>? = null,
 )
+
+@Serializable
+private data class TurnBody(val user: String, val assistant: String)
 
 @Serializable
 private data class ScreenRequestBody(
@@ -121,12 +126,19 @@ class BackendClient(
             .build()
     }
 
-    override suspend fun interpret(text: String, languageTag: String, contactNames: List<String>?): InterpretResult {
+    override suspend fun interpret(
+        text: String,
+        languageTag: String,
+        contactNames: List<String>?,
+        history: List<Turn>,
+    ): InterpretResult {
         val body = InterpretRequestBody(
             text = text.take(500),
             contacts = contactNames?.take(2000)?.map { it.take(100) },
             now = timestamp(),
             locale = languageTag,
+            history = history.takeLast(MAX_HISTORY_TURNS).map { TurnBody(it.user.take(400), it.assistant.take(400)) }
+                .takeIf { it.isNotEmpty() },
         )
         return post(
             path = "/interpret",
@@ -260,6 +272,7 @@ class BackendClient(
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private const val MAX_SUMMARY_MESSAGES = 40
         private const val MAX_SUMMARY_CHARS = 2000
+        private const val MAX_HISTORY_TURNS = 6
     }
 }
 

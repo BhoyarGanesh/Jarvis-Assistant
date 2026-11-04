@@ -7,6 +7,8 @@ import com.jarvis.assistant.domain.contacts.ChoiceResult
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.contacts.ContactMatch
 import com.jarvis.assistant.domain.contacts.ContactMatcher
+import com.jarvis.assistant.domain.conversation.ConversationHistory
+import com.jarvis.assistant.domain.conversation.FollowUp
 import com.jarvis.assistant.domain.model.AssistantCommand
 import com.jarvis.assistant.domain.model.contactName
 import com.jarvis.assistant.domain.model.isComposed
@@ -60,7 +62,15 @@ class AssistantOrchestrator(
     private var callSession: Job? = null
     private var confirmDecision: CompletableDeferred<Boolean>? = null
     private var choiceTap: CompletableDeferred<Int>? = null
+    private var followUpTyped: CompletableDeferred<String>? = null
     private var cardIds = 0L
+
+    /**
+     * How a turn ended: [summary] is what Jarvis did, for the next turn's context; [canFollowUp] is false
+     * when listening on makes no sense (an error, or the phone was handed to a call or another app);
+     * [revision] is a spoken change to a draft ("make it shorter") to run as the next turn right away.
+     */
+    private data class TurnOutcome(val summary: String, val canFollowUp: Boolean = true, val revision: String? = null)
 
     val isBusy: Boolean get() = session?.isActive == true
 
@@ -70,9 +80,18 @@ class AssistantOrchestrator(
         session = scope.launch { runSession() }
     }
 
-    /** Runs [text] as if it had been heard. For debug-build testing without speaking. */
+    /**
+     * Runs [text] as if it had been heard; while Jarvis waits for a follow-up, it becomes that follow-up.
+     * For debug-build testing without speaking.
+     */
     fun triggerText(text: String) {
-        if (isBusy || text.isBlank()) return
+        if (text.isBlank()) return
+        val waiting = followUpTyped
+        if (waiting != null && waiting.isActive) {
+            waiting.complete(text)
+            return
+        }
+        if (isBusy) return
         session = scope.launch { runSession(typed = text) }
     }
 
@@ -100,11 +119,16 @@ class AssistantOrchestrator(
         _state.update { it.copy(errorMessage = null, phase = if (it.phase == AssistantPhase.ERROR) AssistantPhase.IDLE else it.phase) }
     }
 
+    /**
+     * One conversation: the first request, then (with follow-up mode on) further requests heard without
+     * the wake word, each sent with the earlier turns so "call him" or "and tomorrow?" make sense.
+     */
     private suspend fun runSession(typed: String? = null) {
         val settings = settingsSource.current()
         val phrases = Phrases(settings.isHindi)
+        val history = ConversationHistory()
         try {
-            _state.update { it.copy(transcript = "", reply = "", errorMessage = null, confirmation = null, disambiguation = null) }
+            _state.update { it.copy(transcript = "", reply = "", errorMessage = null, confirmation = null, disambiguation = null, followUp = false) }
             wakeWord.pause()
 
             if (!settings.backendConfigured) {
@@ -112,7 +136,7 @@ class AssistantOrchestrator(
                 return
             }
 
-            val transcript = if (typed != null) typed else when (val heard = listen(settings)) {
+            var next: String? = typed ?: when (val heard = listen(settings)) {
                 is SpeechResult.Text -> heard.text
                 SpeechResult.NoMatch -> {
                     speak(phrases.didNotHear(), settings)
@@ -124,14 +148,15 @@ class AssistantOrchestrator(
                 }
             }
 
-            _state.update { it.copy(phase = AssistantPhase.THINKING, transcript = transcript) }
-            val contactNames = if (settings.shareContactNames && contacts.hasPermission()) {
-                contacts.loadContacts().map { it.displayName }.distinct()
-            } else null
-
-            when (val result = interpreter.interpret(transcript, settings.languageTag, contactNames)) {
-                is InterpretResult.Failure -> fail(result.spokenMessage, settings)
-                is InterpretResult.Success -> handle(result.command, transcript, settings, phrases)
+            while (next != null) {
+                val transcript: String = next
+                val turn = runTurn(transcript, history, settings, phrases)
+                history.add(transcript, turn.summary)
+                next = when {
+                    turn.revision != null -> turn.revision
+                    !settings.followUpMode || !turn.canFollowUp -> null
+                    else -> awaitFollowUp(settings)
+                }
             }
         } catch (e: CancellationException) {
             speechInput.cancel()
@@ -142,9 +167,56 @@ class AssistantOrchestrator(
         }
     }
 
+    private suspend fun runTurn(transcript: String, history: ConversationHistory, settings: AppSettings, phrases: Phrases): TurnOutcome {
+        _state.update { it.copy(phase = AssistantPhase.THINKING, transcript = transcript, followUp = false) }
+        val contactNames = if (settings.shareContactNames && contacts.hasPermission()) {
+            contacts.loadContacts().map { it.displayName }.distinct()
+        } else null
+
+        return when (val result = interpreter.interpret(transcript, settings.languageTag, contactNames, history.recent)) {
+            is InterpretResult.Failure -> {
+                fail(result.spokenMessage, settings)
+                TurnOutcome(result.spokenMessage, canFollowUp = false)
+            }
+            is InterpretResult.Success -> handle(result.command, transcript, settings, phrases)
+        }
+    }
+
+    /**
+     * Waits a few seconds for a follow-up. Only called once the reply has finished playing, plus a short
+     * gap, so Jarvis never hears herself. Returns null to end the conversation: silence, "thanks",
+     * "that's all", "stop", or a recognizer error.
+     */
+    private suspend fun awaitFollowUp(settings: AppSettings): String? {
+        delay(FollowUp.AFTER_SPEECH_GAP_MS)
+        val typed = CompletableDeferred<String>().also { followUpTyped = it }
+        _state.update { it.copy(phase = AssistantPhase.LISTENING, followUp = true) }
+        try {
+            val said = coroutineScope {
+                val voice = async {
+                    (listen(settings, chime = false, startTimeoutMs = FollowUp.WINDOW_MS) as? SpeechResult.Text)?.text
+                }
+                val picked = select {
+                    typed.onAwait { it }
+                    voice.onAwait { it }
+                }
+                if (voice.isActive) {
+                    speechInput.cancel()
+                    voice.cancel()
+                }
+                picked
+            }
+            return said?.trim()?.takeIf { it.isNotEmpty() && !FollowUp.isEnd(it) }
+        } finally {
+            followUpTyped = null
+            _state.update { it.copy(followUp = false) }
+        }
+    }
+
     private suspend fun endSession() {
         confirmDecision = null
         choiceTap = null
+        followUpTyped = null
         _level.value = 0f
         withContext(NonCancellable) {
             _state.update {
@@ -152,6 +224,7 @@ class AssistantOrchestrator(
                     phase = if (it.phase == AssistantPhase.ERROR) AssistantPhase.ERROR else AssistantPhase.IDLE,
                     confirmation = null,
                     disambiguation = null,
+                    followUp = false,
                 )
             }
             wakeWord.resume()
@@ -306,22 +379,23 @@ class AssistantOrchestrator(
         }
     }
 
-    private suspend fun listen(settings: AppSettings): SpeechResult {
+    private suspend fun listen(settings: AppSettings, chime: Boolean = true, startTimeoutMs: Long = 0): SpeechResult {
         _state.update { it.copy(phase = AssistantPhase.LISTENING) }
-        chime.play()
+        if (chime) this.chime.play()
         return speechInput.listen(
             languageTag = settings.languageTag,
             onPartial = { partial -> _state.update { it.copy(transcript = partial) } },
             onLevel = { _level.value = it.coerceIn(0f, 1f) },
+            startTimeoutMs = startTimeoutMs,
         ).also { _level.value = 0f }
     }
 
-    private suspend fun handle(command: AssistantCommand, transcript: String, settings: AppSettings, phrases: Phrases) {
+    private suspend fun handle(command: AssistantCommand, transcript: String, settings: AppSettings, phrases: Phrases): TurnOutcome {
         if (command is AssistantCommand.Answer) {
             addCard(ActionKind.ANSWER, command.text)
             log(transcript, command.toolName, command.text, ActionStatus.SUCCESS)
             speak(command.text, settings)
-            return
+            return TurnOutcome("Said: ${command.text}")
         }
 
         var contact: Contact? = null
@@ -329,23 +403,37 @@ class AssistantOrchestrator(
         if (spokenName != null) {
             contact = resolveContact(spokenName, settings, phrases) ?: run {
                 log(transcript, command.toolName, "Contact not resolved: $spokenName", ActionStatus.FAILED)
-                return
+                return TurnOutcome(
+                    "${command.toolName}: no contact chosen for \"$spokenName\". Said: ${_state.value.reply}",
+                    canFollowUp = _state.value.phase != AssistantPhase.ERROR,
+                )
             }
             if (contact.phoneNumber.isBlank()) {
                 val msg = phrases.noPhoneNumber(contact.displayName)
                 addCard(ActionKind.INFO, msg, status = ActionStatus.FAILED)
                 log(transcript, command.toolName, msg, ActionStatus.FAILED)
                 speak(msg, settings)
-                return
+                return TurnOutcome("${command.toolName}: $msg")
             }
         }
 
         if (command.isComposed) {
-            if (!confirmDraft(command, contact, settings, phrases)) {
-                addCard(kindOf(command), phrases.draftNotSent(), describe(command, contact), ActionStatus.CANCELLED)
-                log(transcript, command.toolName, "Not sent: ${describe(command, contact)}", ActionStatus.CANCELLED)
-                speak(phrases.draftNotSent(), settings)
-                return
+            when (val answer = confirmDraft(command, contact, settings, phrases)) {
+                DraftAnswer.Send -> Unit
+                DraftAnswer.DontSend -> {
+                    addCard(kindOf(command), phrases.draftNotSent(), describe(command, contact), ActionStatus.CANCELLED)
+                    log(transcript, command.toolName, "Not sent: ${describe(command, contact)}", ActionStatus.CANCELLED)
+                    speak(phrases.draftNotSent(), settings)
+                    return TurnOutcome("${command.toolName}: drafted, read back, and NOT sent: ${describe(command, contact)}")
+                }
+                is DraftAnswer.Change -> {
+                    log(transcript, command.toolName, "Draft changed: ${describe(command, contact)}", ActionStatus.CANCELLED)
+                    return TurnOutcome(
+                        "${command.toolName}: drafted and read back, not sent yet: ${describe(command, contact)}. " +
+                            "The user asked for a change instead; write the changed draft with composed true.",
+                        revision = answer.request,
+                    )
+                }
             }
         } else if (command.needsConfirmation && settings.confirmationCountdownEnabled) {
             val confirmed = countdown(command, contact, settings)
@@ -353,7 +441,7 @@ class AssistantOrchestrator(
                 addCard(kindOf(command), phrases.cancelled(), describe(command, contact), ActionStatus.CANCELLED)
                 log(transcript, command.toolName, "Cancelled: ${describe(command, contact)}", ActionStatus.CANCELLED)
                 speak(phrases.cancelled(), settings)
-                return
+                return TurnOutcome("${command.toolName}: cancelled by the user: ${describe(command, contact)}")
             }
         }
 
@@ -368,6 +456,10 @@ class AssistantOrchestrator(
         addCard(kindOf(command), outcome.speech, describe(command, contact), outcome.status)
         log(transcript, command.toolName, describe(command, contact), outcome.status, outcome.detail)
         speak(outcome.speech, settings)
+        return TurnOutcome(
+            "${command.toolName} (${outcome.status.name.lowercase()}): ${describe(command, contact)}. Said: ${outcome.speech}",
+            canFollowUp = !FollowUp.endsConversation(command, outcome.status),
+        )
     }
 
     private suspend fun resolveContact(spokenName: String, settings: AppSettings, phrases: Phrases): Contact? {
@@ -428,12 +520,21 @@ class AssistantOrchestrator(
         }
     }
 
+    private sealed interface DraftAnswer {
+        data object Send : DraftAnswer
+        data object DontSend : DraftAnswer
+
+        /** "Make it shorter", "say it in Hindi": rewrite the draft instead of answering yes or no. */
+        data class Change(val request: String) : DraftAnswer
+    }
+
     /**
      * Smart compose: Jarvis wrote this message, so read it aloud and send only on a spoken
-     * or tapped "yes". Anything else (no, silence, two unclear answers) keeps it unsent.
+     * or tapped "yes". Anything else (no, silence, two unclear answers) keeps it unsent. With
+     * follow-up mode on, a spoken change ("make it shorter") is passed back to rewrite the draft.
      */
-    private suspend fun confirmDraft(command: AssistantCommand, contact: Contact?, settings: AppSettings, phrases: Phrases): Boolean {
-        val message = draftText(command) ?: return true
+    private suspend fun confirmDraft(command: AssistantCommand, contact: Contact?, settings: AppSettings, phrases: Phrases): DraftAnswer {
+        val message = draftText(command) ?: return DraftAnswer.Send
         val to = contact?.displayName ?: (command as? AssistantCommand.ReplyMessage)?.contactName?.ifBlank { null }
         val decision = CompletableDeferred<Boolean>().also { confirmDecision = it }
         _state.update {
@@ -443,16 +544,16 @@ class AssistantOrchestrator(
             var prompt = phrases.draftReadback(to, message)
             repeat(2) {
                 speak(prompt, settings)
-                if (decision.isCompleted) return decision.await()
-                val heard = coroutineScope {
+                if (decision.isCompleted) return if (decision.await()) DraftAnswer.Send else DraftAnswer.DontSend
+                val heard: Pair<YesNo, String> = coroutineScope {
                     val voice = async {
                         when (val result = listen(settings)) {
-                            is SpeechResult.Text -> YesNoParser.parse(result.text)
-                            else -> YesNo.UNCLEAR
+                            is SpeechResult.Text -> YesNoParser.parse(result.text) to result.text
+                            else -> YesNo.UNCLEAR to ""
                         }
                     }
                     val answer = select {
-                        decision.onAwait { if (it) YesNo.YES else YesNo.NO }
+                        decision.onAwait { (if (it) YesNo.YES else YesNo.NO) to "" }
                         voice.onAwait { it }
                     }
                     if (voice.isActive) {
@@ -461,10 +562,16 @@ class AssistantOrchestrator(
                     }
                     answer
                 }
-                if (heard != YesNo.UNCLEAR) return heard == YesNo.YES
+                when (heard.first) {
+                    YesNo.YES -> return DraftAnswer.Send
+                    YesNo.NO -> return DraftAnswer.DontSend
+                    YesNo.UNCLEAR -> if (settings.followUpMode && FollowUp.isDraftChange(heard.second)) {
+                        return DraftAnswer.Change(heard.second.trim())
+                    }
+                }
                 prompt = phrases.sayYesOrNo()
             }
-            return false
+            return DraftAnswer.DontSend
         } finally {
             confirmDecision = null
             _state.update { it.copy(confirmation = null) }

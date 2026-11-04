@@ -17,7 +17,8 @@ Rules:
 - "where are you?", "find my phone", "ring my phone" -> find_phone.
 - General knowledge questions, small talk, jokes -> answer with one or two short spoken sentences.
 - If the request is ambiguous, missing required details (e.g. who to message or what to say), or not supported, use answer with a short clarifying question or explanation.
-- If the transcript is in Hindi or Hinglish, reply in the same language when using answer.`;
+- If the transcript is in Hindi or Hinglish, reply in the same language when using answer.
+- Follow-ups: when earlier turns of the conversation are given, the transcript may continue them without the wake word. Resolve pronouns and short references from those turns ("call him" -> the person just discussed; "and tomorrow?" -> the same question for tomorrow; "message her too" -> the same message to that person). "Make it shorter / nicer / in Hindi" after a draft rewrites that draft for the same contact and app, with composed true. If the transcript is a new, unrelated request, ignore the earlier turns.`;
 
 const SPOKEN_STYLE = `Your reply is read aloud by text-to-speech, so write plain spoken sentences: no markdown, lists, emoji or URLs.
 Language: reply in the same language the user's question is written in: an English question gets an English reply, a Hindi or Hinglish question gets a Hindi or Hinglish reply.
@@ -62,8 +63,14 @@ export function buildSummaryMessage({ question, messages, now }) {
     .join('\n');
 }
 
-export function buildUserMessage({ text, contacts, now }) {
-  const parts = [`Transcript: "${text}"`];
+export function buildUserMessage({ text, contacts, now, history }) {
+  const parts = [];
+  if (history?.length) {
+    parts.push('Earlier in this conversation (oldest first):');
+    for (const turn of history) parts.push(`User: "${turn.user}"`, `Jarvis: ${turn.assistant}`);
+    parts.push('');
+  }
+  parts.push(`Transcript: "${text}"`);
   if (now) parts.push(`Current local time: ${now}`);
   if (contacts?.length) parts.push(`Known contact names: ${contacts.join(', ')}`);
   return parts.join('\n');

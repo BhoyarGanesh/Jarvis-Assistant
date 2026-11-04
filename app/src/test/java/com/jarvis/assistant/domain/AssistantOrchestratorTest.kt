@@ -2,6 +2,8 @@ package com.jarvis.assistant.domain
 
 import com.jarvis.assistant.domain.calls.IncomingCall
 import com.jarvis.assistant.domain.contacts.Contact
+import com.jarvis.assistant.domain.conversation.FollowUp
+import com.jarvis.assistant.domain.conversation.Turn
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +33,7 @@ class AssistantOrchestratorTest {
         backendUrl = "http://10.0.0.2:8787",
         sharedSecret = "s",
         confirmationCountdownEnabled = false,
+        followUpMode = false,
     )
 
     private class Harness(
@@ -46,6 +49,13 @@ class AssistantOrchestratorTest {
         val logged = mutableListOf<ActionLogEntry>()
         var interpretCalls = 0
         var lastContactNames: List<String>? = null
+        /** Results for the next interpret calls, in order; [interpretResult] once it runs dry. */
+        val interpretQueue = ArrayDeque<InterpretResult>()
+        val interpreted = mutableListOf<Pair<String, List<Turn>>>()
+        val listenTimeouts = mutableListOf<Long>()
+        var chimes = 0
+        /** "listen" and "speak" in the order they happened. */
+        val events = mutableListOf<String>()
         var pauses = 0
         var resumes = 0
         val callActions = mutableListOf<String>()
@@ -58,10 +68,16 @@ class AssistantOrchestratorTest {
                 override suspend fun current() = settings
             },
             interpreter = object : CommandInterpreter {
-                override suspend fun interpret(text: String, languageTag: String, contactNames: List<String>?): InterpretResult {
+                override suspend fun interpret(
+                    text: String,
+                    languageTag: String,
+                    contactNames: List<String>?,
+                    history: List<Turn>,
+                ): InterpretResult {
                     interpretCalls++
                     lastContactNames = contactNames
-                    return interpretResult
+                    interpreted += text to history
+                    return interpretQueue.removeFirstOrNull() ?: interpretResult
                 }
             },
             contacts = object : ContactsSource {
@@ -69,7 +85,14 @@ class AssistantOrchestratorTest {
                 override suspend fun loadContacts() = contactList
             },
             speechInput = object : SpeechInput {
-                override suspend fun listen(languageTag: String, onPartial: (String) -> Unit, onLevel: (Float) -> Unit): SpeechResult {
+                override suspend fun listen(
+                    languageTag: String,
+                    onPartial: (String) -> Unit,
+                    onLevel: (Float) -> Unit,
+                    startTimeoutMs: Long,
+                ): SpeechResult {
+                    listenTimeouts += startTimeoutMs
+                    events += "listen"
                     val next = speechQueue.removeFirstOrNull() ?: return SpeechResult.NoMatch
                     return next()
                 }
@@ -79,12 +102,15 @@ class AssistantOrchestratorTest {
             speechOutput = object : SpeechOutput {
                 override suspend fun speak(text: String, languageTag: String) {
                     spoken += text
+                    events += "speak"
                 }
 
                 override fun stop() = Unit
             },
             chime = object : Chime {
-                override suspend fun play() = Unit
+                override suspend fun play() {
+                    chimes++
+                }
             },
             wakeWord = object : WakeWordControl {
                 override suspend fun pause() {
@@ -544,5 +570,161 @@ class AssistantOrchestratorTest {
         assertTrue(h.spoken.none { "Reminder" in it })
         h.orchestrator.cancel()
         advanceUntilIdle()
+    }
+
+    // --- Follow-up mode ---
+
+    private val followUpSettings = baseSettings.copy(followUpMode = true)
+
+    @Test fun followUpKeepsContextSoHimResolves() = runTest {
+        val h = harness(
+            settings = followUpSettings,
+            speech = listOf({ SpeechResult.Text("what did king say") }, { SpeechResult.Text("call him") }),
+        )
+        h.interpretQueue += InterpretResult.Success(AssistantCommand.Answer("King says he's outside"))
+        h.interpretQueue += InterpretResult.Success(AssistantCommand.CallContact("King"))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+
+        assertEquals(listOf("what did king say", "call him"), h.interpreted.map { it.first })
+        assertTrue(h.interpreted[0].second.isEmpty())
+        val earlier = h.interpreted[1].second.single()
+        assertEquals("what did king say", earlier.user)
+        assertTrue(earlier.assistant.contains("King says he's outside"))
+        assertEquals(listOf(AssistantCommand.CallContact("King") to king), h.executed)
+        // The call hands the phone over, so Jarvis stops listening after it.
+        assertEquals(listOf(0L, FollowUp.WINDOW_MS), h.listenTimeouts)
+        assertEquals("only the first listen chimes", 1, h.chimes)
+        assertEquals(1, h.resumes)
+        assertEquals(AssistantPhase.IDLE, h.orchestrator.state.value.phase)
+        assertFalse(h.orchestrator.state.value.followUp)
+    }
+
+    @Test fun followUpListensOnlyAfterSpeechEnds() = runTest {
+        val h = harness(settings = followUpSettings, command = AssistantCommand.Answer("It's sunny"), speech = listOf({ SpeechResult.Text("weather") }))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(listOf("listen", "speak", "listen"), h.events)
+    }
+
+    @Test fun silenceEndsTheConversationQuietly() = runTest {
+        val h = harness(settings = followUpSettings, command = AssistantCommand.Answer("It's sunny"), speech = listOf({ SpeechResult.Text("weather") }))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(listOf("It's sunny"), h.spoken)
+        assertEquals(1, h.interpretCalls)
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun thanksEndsTheConversation() = runTest {
+        val h = harness(
+            settings = followUpSettings,
+            command = AssistantCommand.Answer("It's sunny"),
+            speech = listOf({ SpeechResult.Text("weather") }, { SpeechResult.Text("okay thanks, that's all") }),
+        )
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(1, h.interpretCalls)
+        assertEquals(listOf("It's sunny"), h.spoken)
+    }
+
+    @Test fun waitingShowsStillListeningAndTapEndsIt() = runTest {
+        val never = CompletableDeferred<SpeechResult>()
+        val h = harness(
+            settings = followUpSettings,
+            command = AssistantCommand.Answer("It's sunny"),
+            speech = listOf({ SpeechResult.Text("weather") }, { never.await() }),
+        )
+        h.orchestrator.trigger()
+        advanceTimeBy(FollowUp.AFTER_SPEECH_GAP_MS + 10)
+        val waiting = h.orchestrator.state.value
+        assertTrue(waiting.followUp)
+        assertEquals(AssistantPhase.LISTENING, waiting.phase)
+        assertEquals("It's sunny", waiting.reply)
+
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+        assertFalse(h.orchestrator.state.value.followUp)
+        assertEquals(AssistantPhase.IDLE, h.orchestrator.state.value.phase)
+        assertEquals(1, h.resumes)
+    }
+
+    @Test fun typedTextBecomesTheFollowUp() = runTest {
+        val never = CompletableDeferred<SpeechResult>()
+        val h = harness(settings = followUpSettings, command = AssistantCommand.Answer("Sunny"), speech = listOf({ never.await() }))
+        h.orchestrator.triggerText("weather today")
+        advanceTimeBy(FollowUp.AFTER_SPEECH_GAP_MS + 10)
+        assertTrue(h.orchestrator.state.value.followUp)
+        h.orchestrator.triggerText("and tomorrow?")
+        advanceUntilIdle()
+        assertEquals(listOf("weather today", "and tomorrow?"), h.interpreted.map { it.first })
+        assertEquals(1, h.interpreted[1].second.size)
+    }
+
+    @Test fun followUpModeOffListensOnce() = runTest {
+        val h = harness(command = AssistantCommand.Answer("Sunny"), speech = listOf({ SpeechResult.Text("weather") }, { SpeechResult.Text("and tomorrow") }))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(listOf(0L), h.listenTimeouts)
+        assertEquals(1, h.interpretCalls)
+    }
+
+    @Test fun noFollowUpAfterABackendError() = runTest {
+        val h = harness(settings = followUpSettings, interpretResult = InterpretResult.Failure("The backend is down."))
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(listOf(0L), h.listenTimeouts)
+        assertEquals(AssistantPhase.ERROR, h.orchestrator.state.value.phase)
+    }
+
+    @Test fun countdownStillWorksInAFollowUp() = runTest {
+        val h = harness(
+            settings = followUpSettings.copy(confirmationCountdownEnabled = true, confirmationSeconds = 3),
+            speech = listOf({ SpeechResult.Text("hi") }, { SpeechResult.Text("call king") }),
+        )
+        h.interpretQueue += InterpretResult.Success(AssistantCommand.Answer("Hello"))
+        h.interpretQueue += InterpretResult.Success(AssistantCommand.CallContact("King"))
+        h.orchestrator.trigger()
+        advanceTimeBy(FollowUp.AFTER_SPEECH_GAP_MS + 10)
+        assertEquals(3, h.orchestrator.state.value.confirmation?.secondsLeft)
+        h.orchestrator.cancel()
+        advanceUntilIdle()
+        assertTrue(h.executed.isEmpty())
+        assertEquals(listOf("Hello", "Cancelled"), h.spoken)
+        // A cancelled countdown leaves the conversation open for "no, call Mom instead".
+        assertEquals(listOf(0L, FollowUp.WINDOW_MS, FollowUp.WINDOW_MS), h.listenTimeouts)
+    }
+
+    @Test fun spokenChangeRewritesTheDraft() = runTest {
+        val shorter = AssistantCommand.SendWhatsApp("Rahul", "Sorry, late!", composed = true)
+        val h = harness(
+            settings = followUpSettings,
+            command = draft,
+            speech = listOf(
+                { SpeechResult.Text("text junior sorry I'm late, politely") },
+                { SpeechResult.Text("make it shorter") },
+                { SpeechResult.Text("yes send it") },
+            ),
+        )
+        h.interpretQueue += InterpretResult.Success(draft)
+        h.interpretQueue += InterpretResult.Success(shorter)
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+
+        assertEquals(listOf(shorter to junior), h.executed)
+        assertEquals("make it shorter", h.interpreted[1].first)
+        val earlier = h.interpreted[1].second.single().assistant
+        assertTrue(earlier, earlier.contains("not sent yet") && earlier.contains(draft.message))
+    }
+
+    @Test fun draftChangeNeedsFollowUpMode() = runTest {
+        val h = harness(
+            command = draft,
+            speech = listOf({ SpeechResult.Text("text junior") }, { SpeechResult.Text("make it shorter") }, { SpeechResult.Text("no") }),
+        )
+        h.orchestrator.trigger()
+        advanceUntilIdle()
+        assertEquals(1, h.interpretCalls)
+        assertTrue(h.executed.isEmpty())
     }
 }

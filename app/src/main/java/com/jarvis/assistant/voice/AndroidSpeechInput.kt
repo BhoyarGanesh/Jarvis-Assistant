@@ -6,6 +6,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -37,6 +40,26 @@ class AndroidSpeechInput @Inject constructor(
         languageTag: String,
         onPartial: (String) -> Unit,
         onLevel: (Float) -> Unit,
+        startTimeoutMs: Long,
+    ): SpeechResult {
+        if (startTimeoutMs <= 0) return listenOnce(languageTag, onPartial, onLevel, 0)
+        // The recognizer gives up on silence after ~5 s on its own; keep listening for the whole window.
+        val deadline = SystemClock.elapsedRealtime() + startTimeoutMs
+        while (true) {
+            speechBegan = false
+            val result = listenOnce(languageTag, onPartial, onLevel, deadline - SystemClock.elapsedRealtime())
+            val left = deadline - SystemClock.elapsedRealtime()
+            if (result != SpeechResult.NoMatch || speechBegan || left < MIN_RETRY_MS) return result
+        }
+    }
+
+    @Volatile private var speechBegan = false
+
+    private suspend fun listenOnce(
+        languageTag: String,
+        onPartial: (String) -> Unit,
+        onLevel: (Float) -> Unit,
+        startTimeoutMs: Long,
     ): SpeechResult = withContext(Dispatchers.Main.immediate) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return@withContext SpeechResult.Error("I need microphone permission to hear you.", permissionMissing = true)
@@ -48,13 +71,13 @@ class AndroidSpeechInput @Inject constructor(
         }
 
         if (onDevice) {
-            when (val first = attempt(onDevice = true, languageTag, onPartial, onLevel)) {
+            when (val first = attempt(onDevice = true, languageTag, onPartial, onLevel, startTimeoutMs)) {
                 is Attempt.Done -> return@withContext first.result
                 // On-device pack for this language isn't installed; fall back to the regular recognizer.
                 Attempt.LanguageUnavailable -> Unit
             }
         }
-        when (val second = attempt(onDevice = false, languageTag, onPartial, onLevel)) {
+        when (val second = attempt(onDevice = false, languageTag, onPartial, onLevel, startTimeoutMs)) {
             is Attempt.Done -> second.result
             Attempt.LanguageUnavailable -> SpeechResult.Error("Speech recognition for this language isn't available.")
         }
@@ -73,6 +96,7 @@ class AndroidSpeechInput @Inject constructor(
         languageTag: String,
         onPartial: (String) -> Unit,
         onLevel: (Float) -> Unit,
+        startTimeoutMs: Long,
     ): Attempt = suspendCancellableCoroutine { cont ->
         val recognizer = if (onDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
@@ -80,8 +104,10 @@ class AndroidSpeechInput @Inject constructor(
             SpeechRecognizer.createSpeechRecognizer(context)
         }
         active = recognizer
+        val handler = Handler(Looper.getMainLooper())
 
         fun finish(attempt: Attempt) {
+            handler.removeCallbacksAndMessages(null)
             if (!cont.isActive) return
             recognizer.destroy()
             if (active === recognizer) active = null
@@ -89,9 +115,22 @@ class AndroidSpeechInput @Inject constructor(
             cont.resume(attempt)
         }
 
+        fun began() {
+            speechBegan = true
+            handler.removeCallbacksAndMessages(null)
+        }
+
+        // Nobody spoke in time: stop quietly (a follow-up window ending).
+        if (startTimeoutMs > 0) {
+            handler.postDelayed({
+                recognizer.cancel()
+                finish(Attempt.Done(SpeechResult.NoMatch))
+            }, startTimeoutMs)
+        }
+
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = Unit
-            override fun onBeginningOfSpeech() = Unit
+            override fun onBeginningOfSpeech() = began()
             override fun onBufferReceived(buffer: ByteArray?) = Unit
             override fun onEndOfSpeech() = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -102,7 +141,10 @@ class AndroidSpeechInput @Inject constructor(
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                partialResults.firstResult()?.takeIf { it.isNotBlank() }?.let(onPartial)
+                partialResults.firstResult()?.takeIf { it.isNotBlank() }?.let {
+                    began()
+                    onPartial(it)
+                }
             }
 
             override fun onResults(results: Bundle?) {
@@ -124,6 +166,7 @@ class AndroidSpeechInput @Inject constructor(
         recognizer.startListening(intent)
 
         cont.invokeOnCancellation {
+            handler.removeCallbacksAndMessages(null)
             recognizer.cancel()
             recognizer.destroy()
             if (active === recognizer) active = null
@@ -146,6 +189,11 @@ class AndroidSpeechInput @Inject constructor(
         SpeechRecognizer.ERROR_AUDIO ->
             Attempt.Done(SpeechResult.Error("I couldn't access the microphone."))
         else -> if (onDevice) Attempt.LanguageUnavailable else Attempt.Done(SpeechResult.Error("Speech recognition failed."))
+    }
+
+    private companion object {
+        /** A recognizer restart shorter than this would hardly hear anything. */
+        const val MIN_RETRY_MS = 1_500L
     }
 
     private fun Bundle?.firstResult(): String? =

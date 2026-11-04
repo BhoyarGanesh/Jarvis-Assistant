@@ -120,7 +120,8 @@ fun HomeScreen(
 
     LaunchedEffect(state.phase) {
         when (state.phase) {
-            AssistantPhase.LISTENING -> haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            // No buzz when she just keeps listening for a follow-up.
+            AssistantPhase.LISTENING -> if (!state.followUp) haptics.performHapticFeedback(HapticFeedbackType.Confirm)
             AssistantPhase.ERROR -> haptics.performHapticFeedback(HapticFeedbackType.Reject)
             else -> Unit
         }
@@ -210,7 +211,7 @@ fun HomeScreen(
                 )
             }
 
-            PhaseLabel(state.phase, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
+            PhaseLabel(state.phase, state.followUp, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
 
             Box(Modifier.heightIn(min = 96.dp).fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.TopCenter) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -344,10 +345,10 @@ private fun Banner(title: String, body: String, onClick: (() -> Unit)?) {
 }
 
 @Composable
-private fun PhaseLabel(phase: AssistantPhase, wakeWordListening: Boolean) {
+private fun PhaseLabel(phase: AssistantPhase, followUp: Boolean, wakeWordListening: Boolean) {
     val label = when (phase) {
         AssistantPhase.IDLE -> if (wakeWordListening) "Say “Jarvis” or tap to talk" else "Tap to talk"
-        AssistantPhase.LISTENING -> "Listening…"
+        AssistantPhase.LISTENING -> if (followUp) "Still listening…" else "Listening…"
         AssistantPhase.THINKING -> "Thinking…"
         AssistantPhase.SPEAKING -> "Speaking"
         AssistantPhase.ERROR -> "Something went wrong"

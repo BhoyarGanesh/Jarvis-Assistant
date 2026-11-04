@@ -33,6 +33,8 @@ data class AssistantUiState(
     val confirmation: PendingConfirmation? = null,
     val disambiguation: Disambiguation? = null,
     val errorMessage: String? = null,
+    /** Listening for a follow-up after a reply, without the wake word. */
+    val followUp: Boolean = false,
 ) {
     val busy: Boolean get() = phase != AssistantPhase.IDLE && phase != AssistantPhase.ERROR
 }

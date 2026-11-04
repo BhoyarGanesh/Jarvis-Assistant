@@ -1,6 +1,7 @@
 package com.jarvis.assistant.domain
 
 import com.jarvis.assistant.domain.contacts.Contact
+import com.jarvis.assistant.domain.conversation.Turn
 import com.jarvis.assistant.domain.model.AssistantCommand
 import kotlinx.coroutines.flow.Flow
 
@@ -31,6 +32,8 @@ data class AppSettings(
     val showAvatar: Boolean = true,
     /** Live rain over the animated character. */
     val rainEffect: Boolean = true,
+    /** After a reply, keep listening a few seconds for a follow-up without the wake word. */
+    val followUpMode: Boolean = true,
 ) {
     companion object {
         const val PHONE_VOICE = ""
@@ -53,7 +56,13 @@ sealed interface InterpretResult {
 }
 
 interface CommandInterpreter {
-    suspend fun interpret(text: String, languageTag: String, contactNames: List<String>?): InterpretResult
+    /** [history] holds the earlier turns of this conversation, oldest first, so follow-ups like "call him" resolve. */
+    suspend fun interpret(
+        text: String,
+        languageTag: String,
+        contactNames: List<String>?,
+        history: List<Turn> = emptyList(),
+    ): InterpretResult
 }
 
 interface ContactsSource {
@@ -68,10 +77,15 @@ sealed interface SpeechResult {
 }
 
 interface SpeechInput {
+    /**
+     * Listens for one utterance. With [startTimeoutMs] > 0, gives up with [SpeechResult.NoMatch] if
+     * no speech has begun by then; an utterance already under way is never cut off.
+     */
     suspend fun listen(
         languageTag: String,
         onPartial: (String) -> Unit,
         onLevel: (Float) -> Unit,
+        startTimeoutMs: Long = 0,
     ): SpeechResult
 
     fun cancel()

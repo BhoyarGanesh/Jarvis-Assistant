@@ -250,3 +250,26 @@ test('reminder and calendar tools validate dates and fill defaults', () => {
   assert.equal(normalizeToolCall('read_calendar', { date: '2026-11-05', days: 30 }).tool, 'answer');
   assert.deepEqual(normalizeToolCall('read_calendar', { date: '2026-11-05' }).args, { date: '2026-11-05', days: 1 });
 });
+
+test('follow-ups send the earlier turns before the transcript', async () => {
+  let seen;
+  const provider = fakeGemini(async (req) => {
+    seen = req;
+    return { functionCalls: [{ name: 'call_contact', args: { name: 'King' } }] };
+  });
+  const history = [{ user: 'what did King say', assistant: 'read_notifications (success): Read messages. Said: King says hi' }];
+  await provider.interpret({ text: 'call him', history });
+  const text = seen.contents[0].parts[0].text;
+  assert.match(text, /Earlier in this conversation[\s\S]*User: "what did King say"[\s\S]*Jarvis: read_notifications[\s\S]*Transcript: "call him"/);
+  assert.match(seen.config.systemInstruction, /Follow-ups/);
+});
+
+test('a first turn has no conversation section', async () => {
+  let seen;
+  const provider = fakeGemini(async (req) => {
+    seen = req;
+    return { functionCalls: [{ name: 'answer', args: { text: 'hi' } }] };
+  });
+  await provider.interpret({ text: 'hello', history: [] });
+  assert.doesNotMatch(seen.contents[0].parts[0].text, /Earlier in this conversation/);
+});

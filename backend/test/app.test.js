@@ -188,3 +188,29 @@ test('screen and summary prompts tie the reply language to the question', async 
   }
   assert.equal(seen.length, 2);
 });
+
+test('interpret passes earlier conversation turns to the provider', async () => {
+  let seen;
+  const url = await start({
+    name: 'spy',
+    model: 'x',
+    configured: true,
+    interpret: async (req) => {
+      seen = req;
+      return { tool: 'call_contact', args: { name: 'King' } };
+    },
+  });
+  const history = [{ user: 'what did King say?', assistant: 'read_notifications (success): Read messages. Said: King says hi' }];
+  const res = await post(url, { text: 'call him', history });
+  assert.equal(res.status, 200);
+  assert.deepEqual(seen.history, history);
+  assert.equal(seen.text, 'call him');
+});
+
+test('interpret validates conversation history', async () => {
+  const turn = { user: 'hi', assistant: 'Said: hello' };
+  for (const history of [Array(7).fill(turn), [{ user: 'hi' }], [{ user: 'x'.repeat(401), assistant: 'a' }], 'hi']) {
+    assert.equal((await post(base, { text: 'call him', history })).status, 400, JSON.stringify(history).slice(0, 80));
+  }
+  assert.equal((await post(base, { text: 'call king', history: [turn] })).status, 200);
+});

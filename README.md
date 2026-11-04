@@ -104,6 +104,10 @@ Gemini and Claude clients so no key is needed: `npm test`.
 ```
 → `200 {"tool":"send_whatsapp","args":{"contact_name":"Junior","message":"hi"},"provider":"gemini","model":"gemini-3.5-flash-lite","latencyMs":612}`
 
+Follow-ups add `"history": [{ "user": "what did King say", "assistant": "read_notifications (success): ... Said: ..." }]`,
+the earlier turns of the same conversation, oldest first (at most 6, 400 characters each). The backend logs only how
+many turns there were, never their text.
+
 Tools: `call_contact(name)`, `send_whatsapp(contact_name, message)`, `send_sms(contact_name, message)`,
 `set_alarm(hour, minute, label)`, `set_timer(seconds, label)`, `open_app(app_name)`, `web_search(query)`,
 `play_music(query)`, `read_notifications(app_name, contact_name)`, `reply_message(contact_name, message)`,
@@ -230,10 +234,18 @@ wake word fires while another app is open.
   anything urgent first. It needs notification access. Message text leaves the phone only when you ask.
 - **"Where are you?"** Jarvis says "I'm here!" and rings at full alarm volume, even on silent, for
   45 seconds. Stop it from the notification or by touching the Jarvis screen.
+- **Follow-ups without "Jarvis".** After she answers, Jarvis keeps listening for about 7 seconds. The edge glow
+  stays cyan and the label says *Still listening…*. Ask "and tomorrow?", "call him", "message her too", or, after a
+  drafted message, "make it shorter" instead of yes or no. Each follow-up is sent with the last few turns of the
+  conversation, so "him" and "tomorrow" make sense. The conversation ends when you stay quiet, say "thanks",
+  "that's all" or "stop", or tap the screen. It also ends after Jarvis places a call, opens an app, starts
+  music, searches the web or rings to be found, since the phone then belongs to that. The microphone only opens
+  once her reply has finished playing, so she doesn't hear herself. The countdown, "which one?" and the
+  draft read-back work in follow-ups too. Turn it off under Settings → *Follow-up mode*.
 - Every action is logged in **History** (clock icon). You can clear it there.
 - Settings has: wake word on/off, sensitivity and re-trigger delay, backend URL and secret, spoken replies,
-  screen awareness, caller announcements, countdown, language (English, English (India), Hindi), start on
-  boot, and sharing contact names.
+  follow-up mode, screen awareness, caller announcements, countdown, language (English, English (India), Hindi),
+  start on boot, and sharing contact names.
 
 ## Known limitations
 
@@ -242,6 +254,10 @@ wake word fires while another app is open.
   Every spoken reply's text goes to your backend and Gemini to be voiced. Choose *Phone voice* to keep
   replies on the phone.
 
+- **Follow-up window.** The platform recognizer gives up after about 5 seconds of silence, so Jarvis restarts it
+  once to cover the full 7 seconds. Background noise or a TV can still be heard as a follow-up; say "stop" or tap
+  to end. Each follow-up is another `/interpret` call (and another AI voice reply), so long conversations use up
+  the free tier faster.
 - **Wake word, then pause.** Vosk detects "Jarvis", then the platform recognizer starts after the chime.
   Words spoken before the chime are not captured. A single breath like "Jarvis call King" usually needs
   the "call King" part repeated after the chime.
@@ -313,6 +329,11 @@ wake word fires while another app is open.
 - **Wake word sensitivity.** Sensitivity 0–1 maps to a minimum Vosk word confidence of 0.95–0.45. Above
   0.8, partial results also trigger, which is faster but noisier. A debounce window (default 2 s) blocks
   repeat triggers.
+- **Follow-up context is text, not chat history.** The phone keeps the last 4 turns of the current conversation in
+  memory (forgotten when it ends) and sends them as a short "earlier in this conversation" block, with each turn
+  summarised as the tool, what was done and what Jarvis said. This works the same for Gemini, Claude and the mock
+  provider, and keeps every request a single forced tool call. A spoken change to a draft ("make it shorter") is run as
+  the next turn with the unsent draft in context, so the rewritten draft is read back and confirmed again.
 - **Safety.** The countdown applies only to actions that reach other people (calls, WhatsApp, SMS). The
   accessibility service only acts while the app has an "armed" send request (10 s), and only in WhatsApp.
 - **UI.** Material 3, dark only, with bundled OFL fonts (Space Grotesk for display, Inter for text).

@@ -71,6 +71,7 @@ class SettingsViewModel @Inject constructor(
     }
     fun setShowAvatar(v: Boolean) = save { setShowAvatar(v) }
     fun setRainEffect(v: Boolean) = save { setRainEffect(v) }
+    fun setFollowUpMode(v: Boolean) = save { setFollowUpMode(v) }
     fun completeOnboarding() = save { setOnboardingComplete(true) }
 
     fun testConnection(url: String) {
