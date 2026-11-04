@@ -11,7 +11,7 @@ const provider = createProvider(config);
 const speech = new GeminiSpeech({ apiKey: config.geminiApiKey, models: config.ttsModels, voice: config.ttsVoice });
 // Live mode (talk over her) also always uses Gemini.
 const live = new GeminiLive({ apiKey: config.geminiApiKey, models: config.liveModels, voice: config.ttsVoice });
-const app = createApp({ provider, speech, live, sharedSecret: config.sharedSecret, rateLimitPerMinute: config.rateLimitPerMinute });
+const app = createApp({ provider, speech, live, sharedSecret: config.sharedSecret, rateLimitPerMinute: config.rateLimitPerMinute, trustProxy: config.trustProxy });
 
 const server = app.listen(config.port, config.host, () => {
   console.log(`Jarvis backend listening on port ${config.port} (provider: ${provider.name}, model: ${provider.model})`);

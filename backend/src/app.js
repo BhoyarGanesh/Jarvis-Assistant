@@ -69,11 +69,12 @@ function safeEqual(a, b) {
 /**
  * @param {{ provider: import('./providers/index.js').LLMProvider, sharedSecret?: string,
  *           speech?: import('./speech.js').GeminiSpeech | null, live?: { configured: boolean } | null,
- *           rateLimitPerMinute?: number, logger?: Pick<Console, 'info'|'error'> }} deps
+ *           rateLimitPerMinute?: number, trustProxy?: number, logger?: Pick<Console, 'info'|'error'> }} deps
  */
-export function createApp({ provider, sharedSecret, speech = null, live = null, rateLimitPerMinute = 30, logger = console }) {
+export function createApp({ provider, sharedSecret, speech = null, live = null, rateLimitPerMinute = 30, trustProxy = 0, logger = console }) {
   const app = express();
   app.disable('x-powered-by');
+  if (trustProxy) app.set('trust proxy', trustProxy);
 
   app.get('/health', (_req, res) => {
     res.json({

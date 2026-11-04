@@ -149,11 +149,23 @@ Errors are `{"error": "...", "message": "<friendly, speakable text>"}`:
 
 `GET /health` is public and reports the provider, the model, and whether a key is configured.
 
-### Deploying later
+### Deploying for free (Render)
 
-The backend is a plain Express app. To use Jarvis away from home Wi-Fi, deploy `backend/` to any Node
-host (Render, Railway, Fly.io, a VPS or Cloud Run). Set the same env vars there, and use the
-`https://` URL in the app. Keep the shared secret long, since it is the only auth.
+To use Jarvis away from home Wi-Fi without keeping your PC on, deploy `backend/` to Render's free plan
+(WebSockets, so Live mode, work there). `render.yaml` describes the service:
+
+1. Push this repo to GitHub (`backend/.env` is gitignored and never leaves your PC).
+2. On https://render.com: **New → Blueprint**, connect GitHub, pick the repo. Render reads `render.yaml`.
+3. When asked, paste `GEMINI_API_KEY` and `APP_SHARED_SECRET` (the same values as in your `backend/.env`).
+4. After the deploy, open `https://<service>.onrender.com/health`. It should show `"configured":true`.
+5. In the app, set the backend URL to `https://<service>.onrender.com` and the same secret.
+
+A free Render service sleeps after 15 minutes without traffic and takes about a minute to wake, which is longer
+than the app waits. To keep it awake, have a free scheduler such as https://cron-job.org call
+`https://<service>.onrender.com/health` every 10 minutes. One always-on service fits in Render's 750 free hours a
+month. Behind Render's proxy the backend trusts one proxy hop (`TRUST_PROXY`, set automatically on Render), so
+rate limits apply per phone. Keep the shared secret long, since it is the only auth. Any other Node host works too:
+set the same env vars there and `TRUST_PROXY=1` if it sits behind a proxy.
 
 ## 2. Build and install the app
 

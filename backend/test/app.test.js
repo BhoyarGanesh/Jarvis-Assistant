@@ -214,3 +214,16 @@ test('interpret validates conversation history', async () => {
   }
   assert.equal((await post(base, { text: 'call king', history: [turn] })).status, 200);
 });
+
+test('behind a proxy, rate limits apply per client IP', async () => {
+  const url = await start(new MockProvider(), { rateLimitPerMinute: 1, trustProxy: 1 });
+  const from = (ip) =>
+    fetch(`${url}/interpret`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-jarvis-secret': SECRET, 'x-forwarded-for': ip },
+      body: JSON.stringify({ text: 'hi' }),
+    });
+  assert.equal((await from('10.0.0.1')).status, 200);
+  assert.equal((await from('10.0.0.2')).status, 200);
+  assert.equal((await from('10.0.0.1')).status, 429);
+});

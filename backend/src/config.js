@@ -26,4 +26,7 @@ export const config = {
     .filter(Boolean),
   sharedSecret: env.APP_SHARED_SECRET,
   rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 30),
+  // Hops of reverse proxy in front of the app (Render, Cloud Run...), so rate limits see the phone's IP.
+  // Render sets RENDER=true; set TRUST_PROXY yourself on other hosts.
+  trustProxy: Number(env.TRUST_PROXY ?? (env.RENDER ? 1 : 0)),
 };
