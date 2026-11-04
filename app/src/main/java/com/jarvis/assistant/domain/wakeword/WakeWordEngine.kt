@@ -4,7 +4,7 @@ import com.jarvis.assistant.domain.WakeWordControl
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
-data class WakeWordConfig(val sensitivity: Float, val debounceMs: Long)
+data class WakeWordConfig(val sensitivity: Float, val debounceMs: Long, val phrase: String = WakePhrase.DEFAULT)
 
 sealed interface WakeWordEngineState {
     data object Stopped : WakeWordEngineState
@@ -26,4 +26,10 @@ interface WakeWordEngine : WakeWordControl {
 
     fun start(config: WakeWordConfig)
     fun stop()
+
+    /**
+     * Whether the engine can recognize [word] at all, or null if that can't be checked right now
+     * (model still loading, or the engine has no word list).
+     */
+    fun isKnownWord(word: String): Boolean?
 }

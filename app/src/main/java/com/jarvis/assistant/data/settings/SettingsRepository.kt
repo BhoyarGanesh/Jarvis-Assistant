@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jarvis.assistant.domain.AppSettings
 import com.jarvis.assistant.domain.SettingsSource
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -47,6 +48,7 @@ class SettingsRepository @Inject constructor(
         val rainEffect = booleanPreferencesKey("rain_effect")
         val followUp = booleanPreferencesKey("follow_up_mode")
         val liveMode = booleanPreferencesKey("live_mode")
+        val wakePhrase = stringPreferencesKey("wake_phrase")
     }
 
     override val settings: Flow<AppSettings> = store.data.map { p ->
@@ -71,6 +73,7 @@ class SettingsRepository @Inject constructor(
             rainEffect = p[Keys.rainEffect] ?: d.rainEffect,
             followUpMode = p[Keys.followUp] ?: d.followUpMode,
             liveMode = p[Keys.liveMode] ?: d.liveMode,
+            wakePhrase = p[Keys.wakePhrase] ?: d.wakePhrase,
         )
     }
 
@@ -95,4 +98,5 @@ class SettingsRepository @Inject constructor(
     suspend fun setRainEffect(value: Boolean) = store.edit { it[Keys.rainEffect] = value }
     suspend fun setFollowUpMode(value: Boolean) = store.edit { it[Keys.followUp] = value }
     suspend fun setLiveMode(value: Boolean) = store.edit { it[Keys.liveMode] = value }
+    suspend fun setWakePhrase(value: String) = store.edit { it[Keys.wakePhrase] = WakePhrase.normalize(value).ifEmpty { WakePhrase.DEFAULT } }
 }

@@ -31,6 +31,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jarvis.assistant.data.settings.SettingsRepository
+import com.jarvis.assistant.domain.wakeword.WakePhrase
+import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.AssistantOrchestrator
 import com.jarvis.assistant.platform.PhoneFinder
 import com.jarvis.assistant.platform.ScreenCapture
@@ -56,6 +58,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var unlock: UnlockCoordinator
     @Inject lateinit var screen: ScreenCapture
     @Inject lateinit var phoneFinder: PhoneFinder
+    @Inject lateinit var wakeWordEngine: WakeWordEngine
 
     /** Bumped for each "start listening" request from the widget, tile or notification. */
     private var listenRequests by mutableIntStateOf(0)
@@ -140,11 +143,19 @@ class MainActivity : ComponentActivity() {
                 val secret = intent.getStringExtra(EXTRA_SHARED_SECRET)
                 // Optional: --ez live_mode true|false
                 val live = if (intent.hasExtra(EXTRA_LIVE_MODE)) intent.getBooleanExtra(EXTRA_LIVE_MODE, false) else null
+                // Optional: --es wake_phrase "friday" (checked like the Settings field)
+                val phrase = intent.getStringExtra(EXTRA_WAKE_PHRASE)
                 intent.action = null
                 lifecycleScope.launch {
                     url?.let { settingsRepository.setBackendUrl(it) }
                     secret?.let { settingsRepository.setSharedSecret(it) }
                     live?.let { settingsRepository.setLiveMode(it) }
+                    phrase?.let {
+                        when (val check = WakePhrase.check(it, wakeWordEngine::isKnownWord)) {
+                            is WakePhrase.Check.Ok -> settingsRepository.setWakePhrase(check.phrase)
+                            is WakePhrase.Check.Invalid -> Toast.makeText(this@MainActivity, check.reason, Toast.LENGTH_LONG).show()
+                        }
+                    }
                     Toast.makeText(this@MainActivity, "Backend settings updated", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -160,6 +171,7 @@ class MainActivity : ComponentActivity() {
         private const val EXTRA_BACKEND_URL = "backend_url"
         private const val EXTRA_SHARED_SECRET = "shared_secret"
         private const val EXTRA_LIVE_MODE = "live_mode"
+        private const val EXTRA_WAKE_PHRASE = "wake_phrase"
 
         /** Opens Jarvis from the find-my-phone notification and silences it. */
         fun stopRingingIntent(context: Context): Intent =

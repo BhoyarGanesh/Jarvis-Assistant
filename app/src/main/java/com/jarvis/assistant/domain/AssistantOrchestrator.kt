@@ -10,6 +10,7 @@ import com.jarvis.assistant.domain.contacts.ContactMatcher
 import com.jarvis.assistant.domain.conversation.ConversationHistory
 import com.jarvis.assistant.domain.conversation.FollowUp
 import com.jarvis.assistant.domain.live.LiveEvent
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.domain.live.LiveRules
 import com.jarvis.assistant.domain.live.LiveSession
 import com.jarvis.assistant.domain.live.LiveStart
@@ -227,7 +228,9 @@ class AssistantOrchestrator(
             contacts.loadContacts().map { it.displayName }.distinct()
         } else null
 
-        return when (val result = interpreter.interpret(transcript, settings.languageTag, contactNames, history.recent)) {
+        // The wake phrase said in the same breath ("Friday, call King") isn't part of the request.
+        val request = WakePhrase.stripLeading(transcript, settings.wakePhrase)
+        return when (val result = interpreter.interpret(request, settings.languageTag, contactNames, history.recent)) {
             is InterpretResult.Failure -> {
                 fail(result.spokenMessage, settings)
                 TurnOutcome(result.spokenMessage, canFollowUp = false)

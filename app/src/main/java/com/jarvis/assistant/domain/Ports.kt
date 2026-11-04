@@ -3,6 +3,7 @@ package com.jarvis.assistant.domain
 import com.jarvis.assistant.domain.contacts.Contact
 import com.jarvis.assistant.domain.conversation.Turn
 import com.jarvis.assistant.domain.model.AssistantCommand
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import kotlinx.coroutines.flow.Flow
 
 // Boundaries between the assistant flow and Android/network. Implemented in the data and
@@ -36,6 +37,8 @@ data class AppSettings(
     val followUpMode: Boolean = true,
     /** Live mode: a streaming conversation you can talk over (Gemini Live), with the normal pipeline as fallback. */
     val liveMode: Boolean = false,
+    /** What wakes Jarvis: one to three words the offline model knows (see WakePhrase). */
+    val wakePhrase: String = WakePhrase.DEFAULT,
 ) {
     companion object {
         const val PHONE_VOICE = ""

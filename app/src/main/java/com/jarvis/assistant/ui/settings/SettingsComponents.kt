@@ -21,6 +21,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -40,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.ui.theme.JarvisColors
 
 @Composable
@@ -182,4 +187,39 @@ fun BackendFields(
             }
         }
     }
+}
+
+/** Type a new wake word; it is checked against the offline model before it is saved. */
+@Composable
+fun WakePhraseField(current: String, check: WakePhrase.Check?, enabled: Boolean, onSave: (String) -> Unit) {
+    var text by rememberSaveable(current) { mutableStateOf(WakePhrase.display(current)) }
+    val changed = WakePhrase.normalize(text) != current
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it.take(WakePhrase.MAX_CHARS + 10) },
+        label = { Text("Wake word") },
+        placeholder = { Text("Jarvis, Friday, Hey Maya…") },
+        singleLine = true,
+        enabled = enabled,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { if (changed) onSave(text) }),
+        colors = fieldColors(),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { onSave(text) }, enabled = enabled && changed) { Text("Use this word") }
+        Spacer(Modifier.width(10.dp))
+        if (current != WakePhrase.DEFAULT) {
+            TextButton(onClick = { onSave(WakePhrase.DEFAULT) }, enabled = enabled) { Text("Back to Jarvis") }
+        }
+    }
+    val (message, color) = when (check) {
+        is WakePhrase.Check.Invalid -> check.reason to JarvisColors.Error
+        is WakePhrase.Check.Ok -> (check.warning ?: "Now listening for “${WakePhrase.display(check.phrase)}”.") to
+            (if (check.warning != null) JarvisColors.Warning else JarvisColors.Success)
+        null -> "One to three words, offline and English only. Names with two or three syllables work best." to JarvisColors.TextMuted
+    }
+    Text(message, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(top = 4.dp))
 }

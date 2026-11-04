@@ -40,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.assistant.BuildConfig
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
 import com.jarvis.assistant.platform.WhatsAppSendCoordinator
 import com.jarvis.assistant.domain.AppSettings
@@ -60,6 +61,7 @@ fun SettingsScreen(
     val settings = viewModel.settings.collectAsStateWithLifecycle().value ?: return
     val engine by viewModel.engineState.collectAsStateWithLifecycle()
     val connection by viewModel.connection.collectAsStateWithLifecycle()
+    val wakeCheck by viewModel.wakeCheck.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Re-read system state when returning from a system settings screen.
@@ -96,7 +98,7 @@ fun SettingsScreen(
             SectionLabel("Wake word")
             GlassCard(Modifier.fillMaxWidth()) {
                 SettingSwitch(
-                    "Listen for “Jarvis”",
+                    "Listen for “${WakePhrase.display(settings.wakePhrase)}”",
                     when (engine) {
                         WakeWordEngineState.Listening -> "Listening in the background"
                         is WakeWordEngineState.Unavailable -> (engine as WakeWordEngineState.Unavailable).reason
@@ -106,6 +108,8 @@ fun SettingsScreen(
                     settings.wakeWordEnabled,
                     viewModel::setWakeWord,
                 )
+                Divider()
+                WakePhraseField(settings.wakePhrase, wakeCheck, settings.wakeWordEnabled, viewModel::setWakePhrase)
                 Divider()
                 SettingSlider(
                     title = "Sensitivity",

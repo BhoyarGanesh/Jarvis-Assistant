@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import com.sun.jna.NativeLibrary
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
@@ -29,8 +30,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Offline wake word detection with Vosk and a two-entry grammar (["jarvis", "[unk]"]), which keeps
- * CPU low and makes everything that isn't "jarvis" collapse into [unk].
+ * Offline wake word detection with Vosk and a two-entry grammar (["jarvis", "[unk]"], or the user's own
+ * phrase), which keeps CPU low and makes everything else collapse into [unk].
  * All Vosk calls happen on the main thread (its callbacks are delivered there too).
  */
 @Singleton
@@ -53,7 +54,10 @@ class VoskWakeWordEngine @Inject constructor(
     private var loading = false
 
     override fun start(config: WakeWordConfig) {
-        detector = WakeWordDetector(sensitivity = config.sensitivity, debounceMs = config.debounceMs)
+        val phraseChanged = config.phrase != detector.phrase
+        detector = WakeWordDetector(config.phrase, sensitivity = config.sensitivity, debounceMs = config.debounceMs)
+        // The grammar is fixed per recognizer: a new phrase needs a new one.
+        if (phraseChanged) release()
         requested = true
         if (paused) return
         if (service != null) return
@@ -82,6 +86,17 @@ class VoskWakeWordEngine @Inject constructor(
         if (!requested) return
         val loaded = model
         if (loaded != null) listen(loaded) else loadModel()
+    }
+
+    /**
+     * Asks the model's dictionary through libvosk's vosk_model_find_word, which the Java wrapper doesn't
+     * expose. Null when the model isn't loaded yet or the lookup isn't available.
+     */
+    override fun isKnownWord(word: String): Boolean? {
+        val loaded = model ?: return null
+        return runCatching {
+            NativeLibrary.getInstance("vosk").getFunction("vosk_model_find_word").invokeInt(arrayOf<Any>(loaded.pointer, word)) >= 0
+        }.onFailure { Log.w(TAG, "word lookup unavailable", it) }.getOrNull()
     }
 
     private fun loadModel() {
@@ -116,7 +131,7 @@ class VoskWakeWordEngine @Inject constructor(
             return
         }
         try {
-            val rec = Recognizer(model, SAMPLE_RATE, WakeWordDetector.GRAMMAR).apply { setWords(true) }
+            val rec = Recognizer(model, SAMPLE_RATE, detector.grammar).apply { setWords(true) }
             recognizer = rec
             service = SpeechService(rec, SAMPLE_RATE).also { it.startListening(listener) }
             updateState(WakeWordEngineState.Listening)

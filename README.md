@@ -278,7 +278,12 @@ wake word fires while another app is open.
   the normal mode. After a quota error it uses the normal mode for 5 minutes before trying Live again. The
   microphone stream goes to your backend and on to Google only during a live conversation; nothing is recorded.
 - Every action is logged in **History** (clock icon). You can clear it there.
-- Settings has: wake word on/off, sensitivity and re-trigger delay, backend URL and secret, spoken replies,
+- **Your own wake word.** Settings → Wake word → type a name or a short phrase (up to three words), such as
+  "Friday", "Nova" or "Hey Maya", and tap **Use this word**. Jarvis checks it against the offline model's dictionary
+  first and says so if the model doesn't know a word, or if it is an everyday word like "okay" that would fire all the
+  time. Names with two or three syllables work best; a one-syllable word gets a warning. The notification and labels
+  follow your word, and **Back to Jarvis** restores the default.
+- Settings has: wake word on/off, your own wake word, sensitivity and re-trigger delay, backend URL and secret, spoken replies,
   follow-up mode, Live mode, screen awareness, caller announcements, countdown, language (English, English (India), Hindi),
   start on boot, and sharing contact names.
 
@@ -305,7 +310,7 @@ wake word fires while another app is open.
 - **Wake word, then pause.** Vosk detects "Jarvis", then the platform recognizer starts after the chime.
   Words spoken before the chime are not captured. A single breath like "Jarvis call King" usually needs
   the "call King" part repeated after the chime.
-- **Wake word quality.** It uses a small general English model restricted to `["jarvis", "[unk]"]`, so it is
+- **Wake word quality.** It uses a small general English model restricted to `["jarvis", "[unk]"]` (or your own phrase), so it is
   not a trained hotword model. Expect some false triggers in noisy rooms or with TV in the background,
   and tune Sensitivity and Re-trigger delay. The engine sits behind `WakeWordEngine`, so it can be
   replaced (e.g. by Porcupine or openWakeWord) by changing one Hilt binding in `di/AppModule.kt`.
@@ -367,6 +372,12 @@ wake word fires while another app is open.
 - **Orchestration is pure Kotlin.** The whole voice flow (`AssistantOrchestrator`) depends only on
   interfaces, and is unit-tested with fakes: countdown, cancel, disambiguation, permission errors and
   backend errors.
+- **Custom wake words use the same Vosk model.** The grammar becomes `["your phrase", "[unk]"]`, and a phrase only
+  fires when all its words are heard in order, each above the sensitivity's confidence. Vosk silently ignores grammar
+  words that aren't in its dictionary, so the app checks each word first with libvosk's `vosk_model_find_word` (called
+  through JNA, since the Java wrapper doesn't expose it). If the model hasn't loaded yet, the word is accepted
+  unchecked. A wake phrase said in the same breath as the request ("Friday, call King") is stripped before the
+  request is sent to the backend.
 - **Mic hand-off.** Vosk's `SpeechService` is shut down (not just paused) before `SpeechRecognizer`
   starts, so the microphone is actually free, and it is recreated afterwards. On-device recognition is
   preferred on Android 12+, falling back to the regular recognizer if the language pack is missing.

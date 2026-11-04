@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.assistant.domain.AssistantPhase
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
 import com.jarvis.assistant.ui.SystemSettings
 import com.jarvis.assistant.ui.components.ActionCardStack
@@ -183,6 +184,7 @@ fun HomeScreen(
             TopBar(
                 engine = engine,
                 wakeWordEnabled = settings.wakeWordEnabled,
+                wakePhrase = settings.wakePhrase,
                 onHistory = { showHistory = true },
                 onSettings = onOpenSettings,
             )
@@ -211,7 +213,12 @@ fun HomeScreen(
                 )
             }
 
-            PhaseLabel(state.phase, state.followUp, state.live, settings.wakeWordEnabled && engine == WakeWordEngineState.Listening)
+            PhaseLabel(
+                state.phase,
+                state.followUp,
+                state.live,
+                WakePhrase.display(settings.wakePhrase).takeIf { settings.wakeWordEnabled && engine == WakeWordEngineState.Listening },
+            )
 
             Box(Modifier.heightIn(min = 96.dp).fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.TopCenter) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -283,6 +290,7 @@ fun HomeScreen(
 private fun TopBar(
     engine: WakeWordEngineState,
     wakeWordEnabled: Boolean,
+    wakePhrase: String,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -294,7 +302,7 @@ private fun TopBar(
     ) {
         Column(Modifier.weight(1f)) {
             Text("Jarvis", style = MaterialTheme.typography.displaySmall)
-            StatusChip(engine, wakeWordEnabled)
+            StatusChip(engine, wakeWordEnabled, wakePhrase)
         }
         IconButton(onClick = onHistory) { Icon(Icons.Rounded.History, contentDescription = "History") }
         IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
@@ -302,10 +310,10 @@ private fun TopBar(
 }
 
 @Composable
-private fun StatusChip(engine: WakeWordEngineState, enabled: Boolean) {
+private fun StatusChip(engine: WakeWordEngineState, enabled: Boolean, wakePhrase: String) {
     val (label, color) = when {
         !enabled -> "Wake word off" to JarvisColors.TextMuted
-        engine == WakeWordEngineState.Listening -> "Listening for “Jarvis”" to JarvisColors.Success
+        engine == WakeWordEngineState.Listening -> "Listening for “${WakePhrase.display(wakePhrase)}”" to JarvisColors.Success
         engine == WakeWordEngineState.Paused -> "Busy" to JarvisColors.Cyan
         engine == WakeWordEngineState.Loading -> "Loading model" to JarvisColors.Warning
         engine is WakeWordEngineState.Unavailable -> "Wake word unavailable" to JarvisColors.Error
@@ -345,9 +353,9 @@ private fun Banner(title: String, body: String, onClick: (() -> Unit)?) {
 }
 
 @Composable
-private fun PhaseLabel(phase: AssistantPhase, followUp: Boolean, live: Boolean, wakeWordListening: Boolean) {
+private fun PhaseLabel(phase: AssistantPhase, followUp: Boolean, live: Boolean, wakePhrase: String?) {
     val label = when (phase) {
-        AssistantPhase.IDLE -> if (wakeWordListening) "Say “Jarvis” or tap to talk" else "Tap to talk"
+        AssistantPhase.IDLE -> if (wakePhrase != null) "Say “$wakePhrase” or tap to talk" else "Tap to talk"
         AssistantPhase.LISTENING -> when {
             live -> "Live · listening…"
             followUp -> "Still listening…"

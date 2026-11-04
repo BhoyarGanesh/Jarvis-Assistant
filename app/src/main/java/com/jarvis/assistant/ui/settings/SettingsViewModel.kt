@@ -6,6 +6,7 @@ import com.jarvis.assistant.data.remote.BackendClient
 import com.jarvis.assistant.data.remote.HealthResult
 import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.AppSettings
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
 import com.jarvis.assistant.voice.CloudSpeechOutput
@@ -29,7 +30,7 @@ class SettingsViewModel @Inject constructor(
     private val repo: SettingsRepository,
     private val backend: BackendClient,
     private val speech: CloudSpeechOutput,
-    wakeWordEngine: WakeWordEngine,
+    private val wakeWordEngine: WakeWordEngine,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings?> = repo.settings
@@ -45,6 +46,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setWakeWord(v: Boolean) = save { setWakeWordEnabled(v) }
+
+    private val _wakeCheck = MutableStateFlow<WakePhrase.Check?>(null)
+    /** Result of the last wake word the user tried, for the message under the field. */
+    val wakeCheck: StateFlow<WakePhrase.Check?> = _wakeCheck.asStateFlow()
+
+    fun setWakePhrase(input: String) {
+        val check = WakePhrase.check(input, wakeWordEngine::isKnownWord)
+        _wakeCheck.value = check
+        if (check is WakePhrase.Check.Ok) save { setWakePhrase(check.phrase) }
+    }
     fun setSensitivity(v: Float) = save { setSensitivity(v) }
     fun setDebounce(v: Long) = save { setDebounceMs(v) }
     fun setBackendUrl(v: String) {

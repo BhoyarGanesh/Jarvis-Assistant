@@ -20,6 +20,7 @@ import com.jarvis.assistant.MainActivity
 import com.jarvis.assistant.R
 import com.jarvis.assistant.data.settings.SettingsRepository
 import com.jarvis.assistant.domain.AssistantOrchestrator
+import com.jarvis.assistant.domain.wakeword.WakePhrase
 import com.jarvis.assistant.domain.wakeword.WakeWordConfig
 import com.jarvis.assistant.domain.wakeword.WakeWordEngine
 import com.jarvis.assistant.domain.wakeword.WakeWordEngineState
@@ -83,15 +84,19 @@ class JarvisListeningService : LifecycleService() {
         }
     }
 
+    /** The wake phrase as shown in the notification ("Listening for \"Friday\""). */
+    @Volatile private var wakeLabel = WakePhrase.display(WakePhrase.DEFAULT)
+
     private fun observe() {
         lifecycleScope.launch {
             settings.settings
-                .map { Triple(it.wakeWordEnabled, it.wakeWordSensitivity, it.wakeWordDebounceMs) }
+                .map { it.wakeWordEnabled to WakeWordConfig(it.wakeWordSensitivity, it.wakeWordDebounceMs, it.wakePhrase) }
                 .distinctUntilChanged()
-                .collect { (enabled, sensitivity, debounce) ->
+                .collect { (enabled, config) ->
+                    wakeLabel = WakePhrase.display(config.phrase)
                     if (enabled) {
                         engine.stop()
-                        engine.start(WakeWordConfig(sensitivity, debounce))
+                        engine.start(config)
                     } else {
                         engine.stop()
                         stopSelf()
@@ -126,7 +131,7 @@ class JarvisListeningService : LifecycleService() {
 
     private fun buildNotification(state: WakeWordEngineState): Notification {
         val text = when (state) {
-            WakeWordEngineState.Listening -> "Listening for \"Jarvis\""
+            WakeWordEngineState.Listening -> "Listening for \"$wakeLabel\""
             WakeWordEngineState.Paused -> "Handling your request"
             WakeWordEngineState.Loading -> "Loading wake word model"
             WakeWordEngineState.Stopped -> "Wake word off"
